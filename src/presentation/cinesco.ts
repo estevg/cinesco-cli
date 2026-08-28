@@ -287,31 +287,48 @@ async function runPurchaseWizard(provider: Provider): Promise<number> {
   };
   const fmtCOP = (n: number) => "$" + n.toLocaleString("es-CO");
 
-  // 1) login — headless (email+password) or browser-assisted (Cine Colombia)
+  // 1) login — headless (email+password) retries on a bad password instead of quitting;
+  // browser-assisted (Cine Colombia) opens the browser.
   let session;
-  try {
-    if (provider.auth === "browser-assisted") {
-      note(style.yellow("necesitás iniciar sesión en el navegador (se hace una vez)."));
-      const yn = (await promptLine("¿inicio sesión ahora? (s/N): ")) || "";
-      if (yn.toLowerCase() !== "s" && yn.toLowerCase() !== "si") {
-        note("ok, cancelado.");
-        return 0;
-      }
+  const isNo = (s: string) => ["n", "no"].includes(s.trim().toLowerCase());
+  if (provider.auth === "browser-assisted") {
+    note(style.yellow("necesitás iniciar sesión en el navegador (se hace una vez)."));
+    const yn = (await promptLine("¿inicio sesión ahora? (s/N): ")) || "";
+    if (yn.toLowerCase() !== "s" && yn.toLowerCase() !== "si") {
+      note("ok, cancelado.");
+      return 0;
+    }
+    try {
       session = await purchase.login({ email: "", password: "" });
-    } else {
+    } catch (e) {
+      errline((e as Error).message);
+      return 1;
+    }
+  } else {
+    for (;;) {
       const email = (await promptLine(`correo de socio ${provider.name}: `)) || "";
       const password = (await promptSecret("contraseña: ")) || "";
       if (!email || !password) {
         errline("necesito correo y contraseña.");
-        return 2;
+        if (isNo((await promptLine("¿reintentar? (S/n): ")) || "")) {
+          note("cancelado.");
+          return 0;
+        }
+        continue;
       }
-      session = await purchase.login({ email: email.trim(), password });
+      try {
+        session = await purchase.login({ email: email.trim(), password });
+        break;
+      } catch (e) {
+        errline((e as Error).message);
+        if (isNo((await promptLine("¿reintentar? (S/n): ")) || "")) {
+          note("cancelado.");
+          return 0;
+        }
+      }
     }
-  } catch (e) {
-    errline((e as Error).message);
-    return 1;
   }
-  note(style.green(`\n✓ hola ${session.member?.name ?? "socio"}`));
+  note(style.green(`\n✓ hola ${session?.member?.name ?? "socio"}`));
 
   // 2) ciudad
   const region = await pick("¿De qué ciudad?", await browse.regions(), (r) => r.name);

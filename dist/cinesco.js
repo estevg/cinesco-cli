@@ -3281,30 +3281,46 @@ async function runPurchaseWizard(provider) {
   };
   const fmtCOP2 = (n) => "$" + n.toLocaleString("es-CO");
   let session;
-  try {
-    if (provider.auth === "browser-assisted") {
-      note2(style2.yellow("necesit\xE1s iniciar sesi\xF3n en el navegador (se hace una vez)."));
-      const yn = await promptLine3("\xBFinicio sesi\xF3n ahora? (s/N): ") || "";
-      if (yn.toLowerCase() !== "s" && yn.toLowerCase() !== "si") {
-        note2("ok, cancelado.");
-        return 0;
-      }
+  const isNo = (s) => ["n", "no"].includes(s.trim().toLowerCase());
+  if (provider.auth === "browser-assisted") {
+    note2(style2.yellow("necesit\xE1s iniciar sesi\xF3n en el navegador (se hace una vez)."));
+    const yn = await promptLine3("\xBFinicio sesi\xF3n ahora? (s/N): ") || "";
+    if (yn.toLowerCase() !== "s" && yn.toLowerCase() !== "si") {
+      note2("ok, cancelado.");
+      return 0;
+    }
+    try {
       session = await purchase.login({ email: "", password: "" });
-    } else {
+    } catch (e) {
+      errline(e.message);
+      return 1;
+    }
+  } else {
+    for (;; ) {
       const email = await promptLine3(`correo de socio ${provider.name}: `) || "";
       const password = await promptSecret3("contrase\xF1a: ") || "";
       if (!email || !password) {
         errline("necesito correo y contrase\xF1a.");
-        return 2;
+        if (isNo(await promptLine3("\xBFreintentar? (S/n): ") || "")) {
+          note2("cancelado.");
+          return 0;
+        }
+        continue;
       }
-      session = await purchase.login({ email: email.trim(), password });
+      try {
+        session = await purchase.login({ email: email.trim(), password });
+        break;
+      } catch (e) {
+        errline(e.message);
+        if (isNo(await promptLine3("\xBFreintentar? (S/n): ") || "")) {
+          note2("cancelado.");
+          return 0;
+        }
+      }
     }
-  } catch (e) {
-    errline(e.message);
-    return 1;
   }
   note2(style2.green(`
-\u2713 hola ${session.member?.name ?? "socio"}`));
+\u2713 hola ${session?.member?.name ?? "socio"}`));
   const region = await pick("\xBFDe qu\xE9 ciudad?", await browse.regions(), (r) => r.name);
   if (!region)
     return 2;
