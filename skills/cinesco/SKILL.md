@@ -8,7 +8,7 @@ description: CLI to buy movie tickets in Colombia from the terminal, across 3 ch
 One terminal over three Colombian cinema chains. Agent-first: `--json` automatically when
 stdout is not a terminal, `schema` and `doctor` for introspection, exit codes 0/1/2.
 
-Install the skill: `npx skills add <owner>/<repo>`
+Install the skill: `npx skills add estevg/cinesco-cli`. Run the CLI: `npx github:estevg/cinesco-cli` (no npm needed) or `bun add -g github:estevg/cinesco-cli`.
 
 ## Installing the binary
 

@@ -9,13 +9,11 @@ PlacetoPay) and you pay at your bank.
 
 ## Install
 
-Download the binary for your platform from [Releases](../../releases) (macOS arm64/x64,
-Linux x64/arm64, Windows x64), make it executable and optionally move it onto your PATH:
+Runs on Node (built with Bun). No npm account needed — install straight from GitHub:
 
 ```bash
-chmod +x cinesco-macos-arm64
-mv cinesco-macos-arm64 /usr/local/bin/cinesco
-cinesco doctor
+npx github:estevg/cinesco-cli doctor          # run without installing
+bun add -g github:estevg/cinesco-cli          # or install globally with Bun
 ```
 
 `cinesco doctor` tells you what's present, what's missing, and the command that fixes it.
@@ -35,9 +33,12 @@ agent-browser install         # downloads Chrome, first time only
 ### From source (requires [Bun](https://bun.sh))
 
 ```bash
-bun run build          # compiles dist/cinesco and dist/royalfilms
-./dist/cinesco doctor
+bun install
+bun run build          # bundles dist/cinesco.js and dist/royalfilms.js (Node targets)
+node dist/cinesco.js doctor
 ```
+
+Optional native binaries (no Node/Bun needed): `bun run build:binaries` → `binaries/`.
 
 ## Quick start
 
