@@ -75,7 +75,7 @@ the JSON commands and asking the user only for what's missing:
 | **city** | fuzzy-match the user's city to a region id | `cinesco <chain> regions --json` |
 | **movie** | list the billboard, offer titles | `cinesco <chain> movies <city> --json` |
 | **cinema** | group showtimes by cinema | `cinesco <chain> showtimes <movieId> <city> --json` |
-| **day** | filter showtimes by date (map "hoy/mañana/viernes") | (same output) |
+| **day** | pass a natural date | `cinesco <chain> showtimes <movieId> <city> --date hoy\|mañana\|viernes --json` |
 | **time** | filter by time ("7pm" → 19:00), offer the nearest | (same output) |
 
 Ask only for the empty slots, confirm, then show the concrete options. Example:

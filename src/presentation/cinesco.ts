@@ -3,6 +3,7 @@
 // Ask which chain, then run that provider's adapter. Agent-first: --json auto
 // off-TTY, schema command, exit codes 0/1/2, data on stdout / banner on stderr.
 import { sleep, launch } from "../shared/proc.ts";
+import { resolveDate } from "../shared/dates.ts";
 import { PROVIDERS, getProvider } from "../infrastructure/registry.ts";
 import type { Provider } from "../domain/ports.ts";
 import type { Showtime, Movie } from "../domain/entities.ts";
@@ -157,7 +158,7 @@ function schemaCmd(json: boolean): void {
       { command: "providers", args: [], summary: "Listar las cadenas" },
       { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena" },
       { command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
-      { command: "<provider> showtimes", args: ["movieId", "[region]"], summary: "Funciones" },
+      { command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]"], summary: "Funciones (filtrable por fecha natural)" },
       { command: "<provider> seats", args: ["--cinema", "--session"], summary: "Butacas libres (datos)" },
       { command: "<provider> fares", args: ["--cinema", "--session"], summary: "Tipos de boleta + precio" },
       { command: "<provider> order", args: ["--cinema", "--session", "--seats", "[--bank]"], summary: "Reservar + link de pago (no cobra)" },
@@ -197,7 +198,12 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
       const movieId = pos[0];
       if (!movieId) throw new UsageError("falta movieId");
       const reg = pos[1] || flags.region;
-      const data = await p.catalog.listShowtimes({ movieId, regionId: reg, cinemaId: flags.cinema });
+      let data = await p.catalog.listShowtimes({ movieId, regionId: reg, cinemaId: flags.cinema });
+      if (flags.date) {
+        const d = resolveDate(flags.date);
+        if (!d) throw new UsageError(`fecha no reconocida: "${flags.date}" (usá hoy | mañana | <día de semana> | YYYY-MM-DD)`);
+        data = data.filter((s) => s.date === d);
+      }
       out(json, cmd, data, [], () => {
         heading(`${p.name} · funciones de ${movieId}`);
         table(data, [

@@ -105,6 +105,34 @@ function launch(cmd, args) {
   } catch {}
 }
 
+// src/shared/dates.ts
+var WEEKDAYS = {
+  domingo: 0,
+  lunes: 1,
+  martes: 2,
+  miercoles: 3,
+  jueves: 4,
+  viernes: 5,
+  sabado: 6
+};
+var norm = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+var fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+var addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+function resolveDate(keyword, today = new Date) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(keyword.trim()))
+    return keyword.trim();
+  const k = norm(keyword);
+  if (k === "hoy")
+    return fmt(today);
+  if (k === "manana")
+    return fmt(addDays(today, 1));
+  if (k === "pasado" || k === "pasado manana" || k === "pasadomanana")
+    return fmt(addDays(today, 2));
+  if (k in WEEKDAYS)
+    return fmt(addDays(today, (WEEKDAYS[k] - today.getDay() + 7) % 7));
+  return null;
+}
+
 // src/domain/errors.ts
 class DomainError extends Error {
   code;
@@ -1494,9 +1522,9 @@ var cinemarkCatalog = {
       for (const th of data?.Theater ?? []) {
         if (cinemaId && String(th.CinemaId) !== String(cinemaId))
           continue;
-        for (const fmt of th.Format ?? []) {
-          const format = [fmt.ScreenTypes, fmt.LangTypes].flat().filter(Boolean).join(" ");
-          for (const s of fmt.Sessions ?? []) {
+        for (const fmt2 of th.Format ?? []) {
+          const format = [fmt2.ScreenTypes, fmt2.LangTypes].flat().filter(Boolean).join(" ");
+          for (const s of fmt2.Sessions ?? []) {
             if (s.IsVisible === false)
               continue;
             out.push({
@@ -2871,7 +2899,7 @@ Agent-first: JSON output automatically when stdout is not a TTY; exit 0 ok / 1 a
 - \`cinesco <chain> regions\`                 cities
 - \`cinesco <chain> cinemas [region]\`        cinemas
 - \`cinesco <chain> movies <region>\`         billboard
-- \`cinesco <chain> showtimes <movieId> <region>\`  showtimes
+- \`cinesco <chain> showtimes <movieId> <region> [--date hoy|mañana|viernes]\`  showtimes
   chain = royalfilms | cinecolombia | cinemark
 
 ## Buy — interactive (human) OR agent-ready (--json)
@@ -3160,7 +3188,7 @@ function schemaCmd(json) {
       { command: "providers", args: [], summary: "Listar las cadenas" },
       { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena" },
       { command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
-      { command: "<provider> showtimes", args: ["movieId", "[region]"], summary: "Funciones" },
+      { command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|ma\xF1ana|viernes]"], summary: "Funciones (filtrable por fecha natural)" },
       { command: "<provider> seats", args: ["--cinema", "--session"], summary: "Butacas libres (datos)" },
       { command: "<provider> fares", args: ["--cinema", "--session"], summary: "Tipos de boleta + precio" },
       { command: "<provider> order", args: ["--cinema", "--session", "--seats", "[--bank]"], summary: "Reservar + link de pago (no cobra)" },
@@ -3200,7 +3228,13 @@ async function runProviderVerb(p, verb, pos, flags, json) {
       if (!movieId)
         throw new UsageError2("falta movieId");
       const reg = pos[1] || flags.region;
-      const data = await p.catalog.listShowtimes({ movieId, regionId: reg, cinemaId: flags.cinema });
+      let data = await p.catalog.listShowtimes({ movieId, regionId: reg, cinemaId: flags.cinema });
+      if (flags.date) {
+        const d = resolveDate(flags.date);
+        if (!d)
+          throw new UsageError2(`fecha no reconocida: "${flags.date}" (us\xE1 hoy | ma\xF1ana | <d\xEDa de semana> | YYYY-MM-DD)`);
+        data = data.filter((s) => s.date === d);
+      }
       out(json, cmd, data, [], () => {
         heading2(`${p.name} \xB7 funciones de ${movieId}`);
         table2(data, [
@@ -3509,7 +3543,7 @@ async function runPortVerb(p, verb, flags, json) {
     return fail("provider-error", e.message);
   }
 }
-function norm(s) {
+function norm2(s) {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 async function searchCmd(query, cityName, json) {
@@ -3520,16 +3554,16 @@ async function searchCmd(query, cityName, json) {
       errline('us\xE1: cinesco search "<pelicula>" --city <ciudad>');
     return 2;
   }
-  const q = norm(query);
+  const q = norm2(query);
   const results = await Promise.all(PROVIDERS.map(async (p) => {
     try {
       const catalog = new BrowseCatalog(p.catalog);
       const regions = await catalog.regions();
-      const region = cityName ? regions.find((r) => norm(r.name) === norm(cityName)) ?? regions.find((r) => norm(r.name).includes(norm(cityName))) : undefined;
+      const region = cityName ? regions.find((r) => norm2(r.name) === norm2(cityName)) ?? regions.find((r) => norm2(r.name).includes(norm2(cityName))) : undefined;
       if (cityName && !region)
         return { chain: p.id, chainName: p.name, error: `sin ciudad "${cityName}"` };
       const movies = await catalog.movies(region?.id);
-      const matches = movies.filter((m) => norm(m.title).includes(q)).map((m) => ({ id: m.id, title: m.title }));
+      const matches = movies.filter((m) => norm2(m.title).includes(q)).map((m) => ({ id: m.id, title: m.title }));
       return { chain: p.id, chainName: p.name, region: region?.name, regionId: region?.id, matches };
     } catch (e) {
       return { chain: p.id, chainName: p.name, error: e.message };

@@ -19,7 +19,7 @@ Agent-first: JSON output automatically when stdout is not a TTY; exit 0 ok / 1 a
 - \`cinesco <chain> regions\`                 cities
 - \`cinesco <chain> cinemas [region]\`        cinemas
 - \`cinesco <chain> movies <region>\`         billboard
-- \`cinesco <chain> showtimes <movieId> <region>\`  showtimes
+- \`cinesco <chain> showtimes <movieId> <region> [--date hoy|mañana|viernes]\`  showtimes
   chain = royalfilms | cinecolombia | cinemark
 
 ## Buy — interactive (human) OR agent-ready (--json)
