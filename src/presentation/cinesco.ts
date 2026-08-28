@@ -156,12 +156,13 @@ function schemaCmd(json: boolean): void {
     providers: PROVIDERS.map((p) => ({ id: p.id, name: p.name, auth: p.auth, capabilities: p.capabilities })),
     commands: [
       { command: "providers", args: [], summary: "Listar las cadenas" },
-      { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena" },
+      { command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empezá por acá)" },
+      { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena (region = ID de 'regions')" },
       { command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
-      { command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]"], summary: "Funciones (filtrable por fecha natural)" },
-      { command: "<provider> seats", args: ["--cinema", "--session"], summary: "Butacas libres (datos)" },
-      { command: "<provider> fares", args: ["--cinema", "--session"], summary: "Tipos de boleta + precio" },
-      { command: "<provider> order", args: ["--cinema", "--session", "--seats", "[--bank]"], summary: "Reservar + link de pago (no cobra)" },
+      { command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]"], summary: "Funciones. Cada fila trae session/cinema/hall/movie para los comandos de abajo" },
+      { command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
+      { command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vacío si la función tiene tarifa única)" },
+      { command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
       { command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas" },
       { command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
     ],
@@ -204,13 +205,24 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
         if (!d) throw new UsageError(`fecha no reconocida: "${flags.date}" (usá hoy | mañana | <día de semana> | YYYY-MM-DD)`);
         data = data.filter((s) => s.date === d);
       }
-      out(json, cmd, data, [], () => {
+      // Hand the agent the exact next command with every id already filled in —
+      // seats/order otherwise need cinema+hall+session(+movie+region) that only
+      // this row knows, and the schema can't pre-fill.
+      const steps: string[] = [];
+      if (data[0]) {
+        const s = data[0];
+        const loc = [`--cinema ${s.cinemaId}`, s.hall ? `--hall ${s.hall}` : "", `--session ${s.id}`].filter(Boolean).join(" ");
+        steps.push(`${p.id} seats ${loc}`);
+        steps.push([`${p.id} order`, loc, `--movie ${movieId}`, reg ? `--region ${reg}` : "", "--seats <labels>"].filter(Boolean).join(" "));
+      }
+      out(json, cmd, data, steps, () => {
         heading(`${p.name} · funciones de ${movieId}`);
         table(data, [
           { key: "id", label: "Función", color: style.cyan },
           { key: "date", label: "Fecha" },
           { key: "time", label: "Hora" },
           { key: "cinemaId", label: "Cine" },
+          { key: "hall", label: "Sala" },
         ]);
       });
     } else if (verb === "regions") {

@@ -325,6 +325,17 @@ async function apiPost(path, body, token) {
   const text = await res.text();
   return handle(text, res, path);
 }
+async function apiDelete(path, token) {
+  const url = `${BASE2}${path}`;
+  let res;
+  try {
+    res = await fetch(url, { method: "DELETE", headers: authHeaders(token) });
+  } catch (e) {
+    throw new ApiError("network", `no se pudo alcanzar ${url}: ${e.message}`);
+  }
+  const text = await res.text();
+  return handle(text, res, path);
+}
 function handle(text, res, path) {
   let body;
   try {
@@ -422,6 +433,9 @@ function buildReserveBody(funcion, multicine, sala, seats) {
 }
 function reserve(body, token) {
   return apiPost(`/reserve/ticket-office`, body, token);
+}
+function releaseReserve(reservaId, token) {
+  return apiDelete(`/reserve/ticket-office/${reservaId}`, token);
 }
 
 // src/infrastructure/royalfilms/sale.ts
@@ -881,19 +895,25 @@ var royalfilmsPurchase = {
     const body = buildReserveBody(fn.funcion_id, fn.funcion_multicine_id, fn.funcion_sala_id, chosen);
     const res = await reserve(body, token);
     const r = res.reserve;
-    const sale = await createSale({
-      token,
-      session: rfSession,
-      cityId: Number(cityId),
-      multicineId: fn.funcion_multicine_id,
-      movieId: Number(movie.id),
-      fn,
-      map,
-      typeNames: names,
-      chosen,
-      total,
-      reserve: { reserva_silla_id: r.reserva_silla_id, reserva_silla_funcion: r.reserva_silla_funcion, reserva_silla_multicine: r.reserva_silla_multicine, reserva_silla_sala: r.reserva_silla_sala, reserva_silla_total: total }
-    });
+    let sale;
+    try {
+      sale = await createSale({
+        token,
+        session: rfSession,
+        cityId: Number(cityId),
+        multicineId: fn.funcion_multicine_id,
+        movieId: Number(movie.id),
+        fn,
+        map,
+        typeNames: names,
+        chosen,
+        total,
+        reserve: { reserva_silla_id: r.reserva_silla_id, reserva_silla_funcion: r.reserva_silla_funcion, reserva_silla_multicine: r.reserva_silla_multicine, reserva_silla_sala: r.reserva_silla_sala, reserva_silla_total: total }
+      });
+    } catch (e) {
+      await releaseReserve(r.reserva_silla_id, token).catch(() => {});
+      throw e;
+    }
     return { id: String(sale.venta_id), total, seatLabels: seats.map((s) => s.label), meta: { cityId, multicineId: fn.funcion_multicine_id } };
   },
   async pay(input) {
@@ -3198,12 +3218,13 @@ function schemaCmd(json) {
     providers: PROVIDERS.map((p) => ({ id: p.id, name: p.name, auth: p.auth, capabilities: p.capabilities })),
     commands: [
       { command: "providers", args: [], summary: "Listar las cadenas" },
-      { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena" },
+      { command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empez\xE1 por ac\xE1)" },
+      { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena (region = ID de 'regions')" },
       { command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
-      { command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|ma\xF1ana|viernes]"], summary: "Funciones (filtrable por fecha natural)" },
-      { command: "<provider> seats", args: ["--cinema", "--session"], summary: "Butacas libres (datos)" },
-      { command: "<provider> fares", args: ["--cinema", "--session"], summary: "Tipos de boleta + precio" },
-      { command: "<provider> order", args: ["--cinema", "--session", "--seats", "[--bank]"], summary: "Reservar + link de pago (no cobra)" },
+      { command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|ma\xF1ana|viernes]"], summary: "Funciones. Cada fila trae session/cinema/hall/movie para los comandos de abajo" },
+      { command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
+      { command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vac\xEDo si la funci\xF3n tiene tarifa \xFAnica)" },
+      { command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
       { command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas" },
       { command: "start", args: [], summary: "Asistente: eleg\xED cadena y explor\xE1 (interactivo)" }
     ],
@@ -3247,13 +3268,21 @@ async function runProviderVerb(p, verb, pos, flags, json) {
           throw new UsageError2(`fecha no reconocida: "${flags.date}" (us\xE1 hoy | ma\xF1ana | <d\xEDa de semana> | YYYY-MM-DD)`);
         data = data.filter((s) => s.date === d);
       }
-      out(json, cmd, data, [], () => {
+      const steps = [];
+      if (data[0]) {
+        const s = data[0];
+        const loc = [`--cinema ${s.cinemaId}`, s.hall ? `--hall ${s.hall}` : "", `--session ${s.id}`].filter(Boolean).join(" ");
+        steps.push(`${p.id} seats ${loc}`);
+        steps.push([`${p.id} order`, loc, `--movie ${movieId}`, reg ? `--region ${reg}` : "", "--seats <labels>"].filter(Boolean).join(" "));
+      }
+      out(json, cmd, data, steps, () => {
         heading2(`${p.name} \xB7 funciones de ${movieId}`);
         table2(data, [
           { key: "id", label: "Funci\xF3n", color: style2.cyan },
           { key: "date", label: "Fecha" },
           { key: "time", label: "Hora" },
-          { key: "cinemaId", label: "Cine" }
+          { key: "cinemaId", label: "Cine" },
+          { key: "hall", label: "Sala" }
         ]);
       });
     } else if (verb === "regions") {

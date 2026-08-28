@@ -7,7 +7,7 @@ import { AuthError, DomainError } from "../../domain/errors.ts";
 import { apiGet } from "./api.ts";
 import { login as rfLogin } from "./auth.ts";
 import { decodeJwt, loadSession, isExpired, type Session as RfSession } from "./session.ts";
-import { buildReserveBody, reserve as rfReserve, type ReserveResult } from "./reserve.ts";
+import { buildReserveBody, reserve as rfReserve, releaseReserve, type ReserveResult } from "./reserve.ts";
 import { createSale } from "./sale.ts";
 import { buildSessionData, getSessionId, buildCheckoutHtml, billingFromToken } from "./checkout.ts";
 import { seatPrice, type SeatMap as RfSeatMap, type SeatCell } from "./seatmap.ts";
@@ -112,11 +112,20 @@ export const royalfilmsPurchase: PurchasePort = {
     const body = buildReserveBody(fn.funcion_id, fn.funcion_multicine_id, fn.funcion_sala_id, chosen);
     const res: ReserveResult = await rfReserve(body, token);
     const r = res.reserve;
-    const sale = await createSale({
-      token, session: rfSession, cityId: Number(cityId), multicineId: fn.funcion_multicine_id, movieId: Number(movie.id),
-      fn, map, typeNames: names, chosen, total,
-      reserve: { reserva_silla_id: r.reserva_silla_id, reserva_silla_funcion: r.reserva_silla_funcion, reserva_silla_multicine: r.reserva_silla_multicine, reserva_silla_sala: r.reserva_silla_sala, reserva_silla_total: total },
-    });
+    // The hold now exists. If createSale fails (e.g. a prior pending sale blocks
+    // it), release the hold before propagating — otherwise those seats stay stuck
+    // until the ~10-min hold expires, and its id would be lost with the throw.
+    let sale;
+    try {
+      sale = await createSale({
+        token, session: rfSession, cityId: Number(cityId), multicineId: fn.funcion_multicine_id, movieId: Number(movie.id),
+        fn, map, typeNames: names, chosen, total,
+        reserve: { reserva_silla_id: r.reserva_silla_id, reserva_silla_funcion: r.reserva_silla_funcion, reserva_silla_multicine: r.reserva_silla_multicine, reserva_silla_sala: r.reserva_silla_sala, reserva_silla_total: total },
+      });
+    } catch (e) {
+      await releaseReserve(r.reserva_silla_id, token).catch(() => {}); // best-effort; don't mask the real error
+      throw e;
+    }
     return { id: String(sale.venta_id), total, seatLabels: seats.map((s) => s.label), meta: { cityId, multicineId: fn.funcion_multicine_id } };
   },
 
