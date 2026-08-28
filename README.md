@@ -46,16 +46,37 @@ Optional native binaries (no Node/Bun needed): `bun run build:binaries` → `bin
 cinesco doctor                         # what can I use right now
 cinesco providers                      # the three chains
 
+# search a movie across all three chains at once (lead with the movie, not the chain)
+cinesco search "spider-man" --city bogota
+
 # browse (headless, no login)
 cinesco cinemark movies bogota
-cinesco cinemark showtimes 109320 bogota
+cinesco cinemark showtimes 109320 bogota --date viernes   # natural dates: hoy | mañana | <weekday>
 
-# buy (full wizard, up to the payment link)
+# buy — interactive wizard for a human…
 cinesco start
+# …or non-interactive for an agent/script (credentials via env vars):
+CINEMARK_EMAIL=you@mail.com CINEMARK_PASSWORD=... \
+  cinesco cinemark order --cinema 2401 --session 151754 --seats F6 \
+    --movie 109320 --region bogota --bank 1007 --json
+# → { orderId, total, seats, paymentUrl }.  The CLI never charges — it stops at the link.
 ```
 
 Output is JSON when stdout is not a terminal, so an agent gets parseable data without
 passing `--json`. On a terminal you get tables and colour.
+
+## For agents (conversational booking)
+
+An agent doesn't drive the interactive wizard — it calls the `--json` commands and holds
+the conversation itself, filling slots (**city → movie → cinema → day → time → seat**) and
+asking only for what's missing. From *"I want to see Spider-Man in Bogotá on Friday"* it
+runs `search` → `showtimes --date viernes` → `seats` → `order` and hands back the payment
+link. The full recipe + example dialogue lives in the agent skill:
+
+```bash
+npx skills add estevg/cinesco-cli     # install the skill
+cinesco skills                        # or read the manual straight from the binary
+```
 
 ## Chains
 
@@ -69,10 +90,19 @@ passing `--json`. On a terminal you get tables and colour.
 
 ```bash
 cinesco doctor | providers | schema | skills | start
-cinesco <chain> regions | cinemas [region] | movies <region> | showtimes <movieId> <region>
+cinesco search "<movie>" --city <city>                          # cross-chain movie search
+
+cinesco <chain> regions | cinemas [region] | movies <region>
+cinesco <chain> showtimes <movieId> <region> [--date hoy|mañana|<weekday>|YYYY-MM-DD]
+
+# agent-ready purchase (--json; credentials via <CHAIN>_EMAIL / <CHAIN>_PASSWORD):
+cinesco <chain> seats  --cinema <id> --session <id>             # free seats
+cinesco <chain> fares  --cinema <id> --session <id>             # ticket types + price
+cinesco <chain> order  --cinema <id> --session <id> --seats F6 --movie <id> --region <city> [--bank 1007]
 # chain = royalfilms | cinecolombia | cinemark
 ```
 
+`cinesco doctor` lists what's installed/logged-in and the command that fixes each gap.
 Run `cinesco skills` for the agent manual served by the binary itself.
 
 ## Privacy & security
