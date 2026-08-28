@@ -33,6 +33,11 @@ export interface CatalogPort {
 // yields a link (the human pays externally — the CLI never charges).
 export interface PurchasePort {
   login(credentials: { email: string; password: string }): Promise<Session>;
+  // Rebuild a Session from a locally persisted credential (e.g. a saved login
+  // token) with no network call. Returns null when there is nothing usable —
+  // no stored session, or it expired. Optional: chains without a local session
+  // store simply omit it, and the caller falls back to `login`.
+  restore?(): Promise<Session | null>;
   getSeatMap(showtime: Showtime, session: Session): Promise<SeatMap>;
   listFares(showtime: Showtime, session: Session): Promise<Fare[]>;
   paymentMethods(): PaymentMethod[]; // empty when the chain has no choice to make

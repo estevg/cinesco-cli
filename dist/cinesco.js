@@ -792,6 +792,16 @@ function paintSeatMap(map, selectedIds = new Set) {
 import { writeFileSync as writeFileSync2 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
 import { join as join2 } from "node:path";
+function toSession(rf) {
+  const u = decodeJwt(rf.token).user ?? {};
+  const member = {
+    id: String(rf.user.id),
+    name: [u.usuario_cliente_nombres, u.usuario_cliente_apellidos].filter(Boolean).join(" ") || rf.user.nombres,
+    email: rf.user.correo,
+    documentId: u.usuario_cliente_documento ? String(u.usuario_cliente_documento) : undefined
+  };
+  return { provider: "royalfilms", member, credentials: { token: rf.token, rfSession: rf } };
+}
 var cred = (s) => s.credentials;
 async function rawSeatMap(hall, showtimeId, userId, token) {
   return apiGet(`/cinemas/halls/id/${hall}/function/id/${showtimeId}/channel/id/1/user/id/${userId}`, token);
@@ -819,14 +829,13 @@ var royalfilmsPurchase = {
     } catch (e) {
       throw new AuthError(e.message);
     }
-    const u = decodeJwt(rf.token).user ?? {};
-    const member = {
-      id: String(rf.user.id),
-      name: [u.usuario_cliente_nombres, u.usuario_cliente_apellidos].filter(Boolean).join(" ") || rf.user.nombres,
-      email: rf.user.correo,
-      documentId: u.usuario_cliente_documento ? String(u.usuario_cliente_documento) : undefined
-    };
-    return { provider: "royalfilms", member, credentials: { token: rf.token, rfSession: rf } };
+    return toSession(rf);
+  },
+  async restore() {
+    const rf = loadSession();
+    if (!rf || isExpired(rf))
+      return null;
+    return toSession(rf);
   },
   async getSeatMap(st, session) {
     const { token, rfSession } = cred(session);
@@ -2672,6 +2681,9 @@ class PurchaseTickets {
   login(credentials) {
     return this.port.login(credentials);
   }
+  restore() {
+    return this.port.restore ? this.port.restore() : Promise.resolve(null);
+  }
   seatMap(showtime, session) {
     return this.port.getSeatMap(showtime, session);
   }
@@ -3474,8 +3486,11 @@ async function runPortVerb(p, verb, flags, json) {
   const login3 = async () => {
     if (p.auth === "browser-assisted")
       return purchase.login({ email: "", password: "" });
+    const restored = await purchase.restore();
+    if (restored)
+      return restored;
     if (!email || !password)
-      throw new Error(`faltan credenciales \u2014 pon\xE9 ${p.id.toUpperCase()}_EMAIL y ${p.id.toUpperCase()}_PASSWORD (o --email/--password)`);
+      throw new Error(`no hay sesi\xF3n \u2014 corr\xE9 'cinesco ${p.id} login', o pon\xE9 ${p.id.toUpperCase()}_EMAIL y ${p.id.toUpperCase()}_PASSWORD (o --email/--password)`);
     return purchase.login({ email: email.trim(), password });
   };
   const showtime = {

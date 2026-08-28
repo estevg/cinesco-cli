@@ -6,7 +6,7 @@ import type { Session, Showtime, SeatMap, Seat, Fare, Order, PaymentLink, Paymen
 import { AuthError, DomainError } from "../../domain/errors.ts";
 import { apiGet } from "./api.ts";
 import { login as rfLogin } from "./auth.ts";
-import { decodeJwt, type Session as RfSession } from "./session.ts";
+import { decodeJwt, loadSession, isExpired, type Session as RfSession } from "./session.ts";
 import { buildReserveBody, reserve as rfReserve, type ReserveResult } from "./reserve.ts";
 import { createSale } from "./sale.ts";
 import { buildSessionData, getSessionId, buildCheckoutHtml, billingFromToken } from "./checkout.ts";
@@ -18,6 +18,19 @@ import { join } from "node:path";
 
 type Row = Record<string, any>;
 interface Cred { token: string; rfSession: RfSession }
+
+// Map a Royal Films JWT session onto the domain Session (member + credentials).
+// Shared by `login` (fresh token) and `restore` (token loaded from disk).
+function toSession(rf: RfSession): Session {
+  const u = (decodeJwt(rf.token).user ?? {}) as Row;
+  const member: Member = {
+    id: String(rf.user.id),
+    name: [u.usuario_cliente_nombres, u.usuario_cliente_apellidos].filter(Boolean).join(" ") || rf.user.nombres,
+    email: rf.user.correo,
+    documentId: u.usuario_cliente_documento ? String(u.usuario_cliente_documento) : undefined,
+  };
+  return { provider: "royalfilms", member, credentials: { token: rf.token, rfSession: rf } };
+}
 const cred = (s: Session): Cred => s.credentials as unknown as Cred;
 
 async function rawSeatMap(hall: string, showtimeId: string, userId: number, token: string): Promise<RfSeatMap> {
@@ -46,14 +59,14 @@ export const royalfilmsPurchase: PurchasePort = {
     } catch (e) {
       throw new AuthError((e as Error).message);
     }
-    const u = (decodeJwt(rf.token).user ?? {}) as Row;
-    const member: Member = {
-      id: String(rf.user.id),
-      name: [u.usuario_cliente_nombres, u.usuario_cliente_apellidos].filter(Boolean).join(" ") || rf.user.nombres,
-      email: rf.user.correo,
-      documentId: u.usuario_cliente_documento ? String(u.usuario_cliente_documento) : undefined,
-    };
-    return { provider: "royalfilms", member, credentials: { token: rf.token, rfSession: rf } };
+    return toSession(rf);
+  },
+
+  // Reuse the token saved by `cinesco royalfilms login` (no network, no password).
+  async restore(): Promise<Session | null> {
+    const rf = loadSession();
+    if (!rf || isExpired(rf)) return null;
+    return toSession(rf);
   },
 
   async getSeatMap(st: Showtime, session: Session): Promise<SeatMap> {

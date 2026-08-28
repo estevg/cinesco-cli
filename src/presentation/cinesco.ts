@@ -460,8 +460,12 @@ async function runPortVerb(p: Provider, verb: string, flags: Record<string, stri
 
   const login = async () => {
     if (p.auth === "browser-assisted") return purchase.login({ email: "", password: "" });
+    // 1) reuse a session saved by `cinesco <chain> login` (no password needed).
+    const restored = await purchase.restore();
+    if (restored) return restored;
+    // 2) fall back to env vars / --email --password.
     if (!email || !password)
-      throw new Error(`faltan credenciales — poné ${p.id.toUpperCase()}_EMAIL y ${p.id.toUpperCase()}_PASSWORD (o --email/--password)`);
+      throw new Error(`no hay sesión — corré 'cinesco ${p.id} login', o poné ${p.id.toUpperCase()}_EMAIL y ${p.id.toUpperCase()}_PASSWORD (o --email/--password)`);
     return purchase.login({ email: email.trim(), password });
   };
 

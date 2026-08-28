@@ -12,6 +12,10 @@ export class PurchaseTickets {
   login(credentials: { email: string; password: string }): Promise<Session> {
     return this.port.login(credentials);
   }
+  // Reuse a session saved by a prior `login`, when the port supports it.
+  restore(): Promise<Session | null> {
+    return this.port.restore ? this.port.restore() : Promise.resolve(null);
+  }
   seatMap(showtime: Showtime, session: Session): Promise<SeatMap> {
     return this.port.getSeatMap(showtime, session);
   }
