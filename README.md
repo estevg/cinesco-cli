@@ -43,13 +43,16 @@ Optional native binaries (no Node/Bun needed): `bun run build:binaries` → `bin
 ## Quick start
 
 ```bash
+cinesco --help                         # the full command surface (alias for `schema`)
 cinesco doctor                         # what can I use right now
 cinesco providers                      # the three chains
 
 # search a movie across all three chains at once (lead with the movie, not the chain)
 cinesco search "spider-man" --city bogota
 
-# browse (headless, no login)
+# browse (headless, no login). Start with `regions`: Royal Films and Cinemark
+# take the region ID it returns, not a city name.
+cinesco cinemark regions               # cities + their IDs (e.g. bogota, soledad)
 cinesco cinemark movies bogota
 cinesco cinemark showtimes 109320 bogota --date viernes   # natural dates: hoy | mañana | <weekday>
 
@@ -89,16 +92,19 @@ cinesco skills                        # or read the manual straight from the bin
 ## Commands
 
 ```bash
-cinesco doctor | providers | schema | skills | start
+cinesco --help | schema                                         # documented surface (--help, -h, help all alias to schema)
+cinesco doctor | providers | skills | start
 cinesco search "<movie>" --city <city>                          # cross-chain movie search
 
-cinesco <chain> regions | cinemas [region] | movies <region>
+cinesco <chain> regions                                         # cities + their IDs — start here (Royal Films/Cinemark need the ID)
+cinesco <chain> cinemas [region] | movies <region>
 cinesco <chain> showtimes <movieId> <region> [--date hoy|mañana|<weekday>|YYYY-MM-DD]
+# every row of `showtimes` carries the cinema/hall/session/movie ids the purchase commands need
 
-# agent-ready purchase (--json; credentials via <CHAIN>_EMAIL / <CHAIN>_PASSWORD):
-cinesco <chain> seats  --cinema <id> --session <id>             # free seats
-cinesco <chain> fares  --cinema <id> --session <id>             # ticket types + price
-cinesco <chain> order  --cinema <id> --session <id> --seats F6 --movie <id> --region <city> [--bank 1007]
+# agent-ready purchase (--json; log in once with `cinesco <chain> login`, or set <CHAIN>_EMAIL / <CHAIN>_PASSWORD):
+cinesco <chain> seats  --cinema <id> --session <id> [--hall <id>]           # free seats + per-seat price (--hall: Royal Films)
+cinesco <chain> fares  --cinema <id> --session <id> [--hall <id>]           # ticket types + price
+cinesco <chain> order  --cinema <id> --session <id> --seats F6 --movie <id> --region <city> [--hall <id>] [--bank 1007]
 # chain = royalfilms | cinecolombia | cinemark
 ```
 
