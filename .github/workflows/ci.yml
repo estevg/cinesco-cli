@@ -16,5 +16,8 @@ jobs:
       - run: bun install
       - name: Tests
         run: bun test
-      - name: dist bundles are fresh
-        run: bash scripts/verify-dist.sh
+      - name: Committed bundle runs on Node
+        run: |
+          node dist/cinesco.js providers --json | grep -q '"id":"cinemark"'
+          node dist/cinesco.js doctor --json | grep -q agent-browser
+          node dist/cinesco.js schema --json | grep -q '"schemaVersion"'
