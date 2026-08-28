@@ -3650,7 +3650,11 @@ async function main() {
     logo2();
     return 0;
   }
-  if (positionals.length === 0 || flags.help || positionals[0] === "help") {
+  if (flags.help || positionals[0] === "help" || positionals[0] === "-h") {
+    schemaCmd(json);
+    return 0;
+  }
+  if (positionals.length === 0) {
     if (json)
       emitJson2({ ok: false, command: "", error: { code: "no-command", message: "us\xE1: cinesco providers | start | <provider> movies | schema" } });
     else {
@@ -3667,7 +3671,7 @@ navegaci\xF3n (ambas): regions \xB7 cinemas \xB7 movies \xB7 showtimes`);
       note2(style2.dim(`
 tip: 'cinesco start' hace todo el flujo guiado (eleg\xED cadena y segu\xED).`));
     }
-    return positionals.length === 0 ? 2 : 0;
+    return 2;
   }
   if (positionals[0] === "providers") {
     providersCmd(json);

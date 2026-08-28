@@ -602,7 +602,13 @@ async function main(): Promise<number> {
     logo();
     return 0;
   }
-  if (positionals.length === 0 || flags.help || positionals[0] === "help") {
+  // --help / -h / help → the documented surface (schema), the thing agents and
+  // humans reflexively reach for. Bare invoke keeps its friendly overview below.
+  if (flags.help || positionals[0] === "help" || positionals[0] === "-h") {
+    schemaCmd(json);
+    return 0;
+  }
+  if (positionals.length === 0) {
     if (json) emitJson({ ok: false, command: "", error: { code: "no-command", message: "usá: cinesco providers | start | <provider> movies | schema" } });
     else {
       logo();
@@ -614,7 +620,7 @@ async function main(): Promise<number> {
       note("otros: providers · doctor · skills · start · schema · logo · --json · --version");
       note(style.dim("\ntip: 'cinesco start' hace todo el flujo guiado (elegí cadena y seguí)."));
     }
-    return positionals.length === 0 ? 2 : 0;
+    return 2;
   }
   if (positionals[0] === "providers") {
     providersCmd(json);
