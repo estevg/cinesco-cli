@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-mkdir -p dist
+mkdir -p binaries
 
 # bin-name : entry file
 bins=(
@@ -28,10 +28,10 @@ for b in "${bins[@]}"; do
     target="${t%%:*}"
     suffix="${t##*:}"
     out="${name}-${suffix}"
-    echo "→ $name · $target → dist/$out"
-    bun build "$entry" --compile --minify --target="$target" --outfile "dist/$out"
+    echo "→ $name · $target → binaries/$out"
+    bun build "$entry" --compile --minify --target="$target" --outfile "binaries/$out"
   done
 done
 
-echo "done. binaries in dist/:"
-ls -lh dist/
+echo "done. binaries in binaries/:"
+ls -lh binaries/
