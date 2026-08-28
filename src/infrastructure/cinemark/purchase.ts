@@ -2,6 +2,7 @@
 // (orders/tickets + orders + orders/continue) → pay (payments/pay-order + poll
 // orders/status → PSE link). Auth = connectapitoken + the x-fingerprint-id device
 // JWT from the login response header.
+import { sleep } from "../../shared/proc.ts";
 import type { PurchasePort, ReserveInput, PayInput } from "../../domain/ports.ts";
 import type { Session, Showtime, SeatMap, Seat, Fare, Order, PaymentLink, PaymentMethod, Member } from "../../domain/entities.ts";
 import { AuthError, PendingOrderError, NotAvailableError } from "../../domain/errors.ts";
@@ -186,7 +187,7 @@ export const cinemarkPurchase: PurchasePort = {
       const d = await wwwGet<any>(`/api/orders/status/${order.id}`, fingerprint);
       const url = findGatewayUrl(d);
       if (url) return { provider: "cinemark", orderId: order.id, url, method: bank.name };
-      await Bun.sleep(1500);
+      await sleep(1500);
     }
     throw new NotAvailableError("no obtuve el link de pago a tiempo");
   },

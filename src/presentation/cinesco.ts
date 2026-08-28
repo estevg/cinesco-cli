@@ -2,6 +2,7 @@
 // Cines Co CLI — one terminal over multiple Colombian cinema chains.
 // Ask which chain, then run that provider's adapter. Agent-first: --json auto
 // off-TTY, schema command, exit codes 0/1/2, data on stdout / banner on stderr.
+import { sleep, launch } from "../shared/proc.ts";
 import { PROVIDERS, getProvider } from "../infrastructure/registry.ts";
 import type { Provider } from "../domain/ports.ts";
 import { emitJson, jsonMode, style, heading, table, note, errline } from "../shared/output.ts";
@@ -15,7 +16,7 @@ async function ccWaitPayment(orderId: string, log: (s: string) => void): Promise
   const deadline = Date.now() + 10 * 60 * 1000; // 10 min (orders expire around then)
   let last = "";
   while (Date.now() < deadline) {
-    await Bun.sleep(5000);
+    await sleep(5000);
     let st;
     try {
       st = await orderStatusViaBrowser(orderId, () => {});
@@ -58,7 +59,7 @@ async function rfWaitPayment(token: string, doc: string, log: (s: string) => voi
   const before = await rfSaleIds(token, doc);
   const deadline = Date.now() + 10 * 60 * 1000;
   while (Date.now() < deadline) {
-    await Bun.sleep(5000);
+    await sleep(5000);
     try {
       const d = await rfApiGet<{ redeemed?: Row[]; unredeemed?: Row[] }>(`/ticket/document/${doc}`, token);
       const all = [...(d.redeemed ?? []), ...(d.unredeemed ?? [])];
@@ -81,7 +82,7 @@ const VERSION = "0.1.0";
 function openInBrowser(target: string): void {
   try {
     const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-    Bun.spawn([cmd, target], { stdout: "ignore", stderr: "ignore" });
+    launch(cmd, [target]);
   } catch {
     /* best effort */
   }

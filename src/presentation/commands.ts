@@ -1,3 +1,4 @@
+import { sleep, launch } from "../shared/proc.ts";
 import { apiGet, ApiError } from "../infrastructure/royalfilms/api.ts";
 import { heading, table, style, note, logo } from "../shared/output.ts";
 import { login, requireToken } from "../infrastructure/royalfilms/auth.ts";
@@ -31,7 +32,7 @@ async function findCinema(
 function openInBrowser(path: string): void {
   try {
     const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-    Bun.spawn([cmd, path], { stdout: "ignore", stderr: "ignore" });
+    launch(cmd, [path]);
   } catch {
     /* best effort */
   }
@@ -291,7 +292,7 @@ export async function runBuyWizard(): Promise<RunResult> {
         const deadline = Date.now() + 10 * 60 * 1000;
         let fresh: Row | undefined;
         while (Date.now() < deadline && !fresh) {
-          await Bun.sleep(5000);
+          await sleep(5000);
           try {
             fresh = (await allTicketSales(token, doc)).find((s) => !before.has(Number(s.venta_id)));
           } catch {

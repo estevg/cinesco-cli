@@ -1,25 +1,30 @@
 {
-  "name": "royalfilms-cli",
+  "name": "cinesco-cli",
   "version": "0.1.0",
-  "description": "Agent-first CLI for the Royal Films (Colombia) public cinema API — cities, cinemas, billboard, showtimes.",
+  "description": "Buy movie tickets in Colombia from the terminal — Royal Films, Cine Colombia, Cinemark. Agent-first, up to the payment link (never charges).",
   "type": "module",
   "bin": {
-    "royalfilms": "./src/presentation/cli.ts",
-    "cinesco": "./src/presentation/cinesco.ts"
+    "cinesco": "dist/cinesco.js",
+    "royalfilms": "dist/royalfilms.js"
   },
-  "scripts": {
-    "start": "bun src/presentation/cli.ts",
-    "build": "bun build src/presentation/cli.ts --compile --minify --outfile dist/royalfilms && bun build src/presentation/cinesco.ts --compile --minify --outfile dist/cinesco",
-    "build:all": "bash scripts/build-all.sh",
-    "test": "bun test"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "license": "MIT",
   "files": [
+    "dist",
     "src",
     "skills",
-    "README.md"
-  ]
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "bun src/presentation/cinesco.ts",
+    "build": "bun scripts/build.ts",
+    "build:binaries": "bash scripts/build-all.sh",
+    "test": "bun test",
+    "verify:dist": "bash scripts/verify-dist.sh",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": ["cine", "cinema", "tickets", "colombia", "cli", "agent", "royalfilms", "cinecolombia", "cinemark"],
+  "license": "MIT"
 }

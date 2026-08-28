@@ -8,6 +8,7 @@
 // With both, plain fetch to the OCAPI works headless: `Authorization: Bearer <appToken>`
 // plus `Cookie: vista-loyalty-member-authentication-token=<memberCookie>`. Browse needs
 // only the appToken; member/purchase calls need both.
+import { sleep, launch, runSync } from "../../shared/proc.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, existsSync, readFileSync, chmodSync } from "node:fs";
@@ -28,8 +29,7 @@ export interface Session {
 }
 
 function sh(cmd: string, args: string[], timeoutMs = 20000) {
-  const p = Bun.spawnSync([cmd, ...args], { stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
-  return { code: p.exitCode ?? -1, stdout: p.stdout.toString(), stderr: p.stderr.toString() };
+  return runSync(cmd, args, timeoutMs);
 }
 function cdpUp(): boolean {
   const r = sh("curl", ["-s", "-m", "3", `http://127.0.0.1:${PORT}/json/version`], 5000);
@@ -114,15 +114,12 @@ export async function acquireSession(requireLogin: boolean, log: (s: string) => 
     throw new Error("necesito 'agent-browser' (npm i -g agent-browser) y Google Chrome.");
   }
   log("abriendo Chrome…");
-  Bun.spawn(
-    ["open", "-na", "Google Chrome", "--args", `--remote-debugging-port=${PORT}`, `--user-data-dir=${PROFILE}`, "--no-first-run", "--no-default-browser-check", "https://www.cinecolombia.com"],
-    { stdout: "ignore", stderr: "ignore" },
-  );
+  launch("open", ["-na", "Google Chrome", "--args", `--remote-debugging-port=${PORT}`, `--user-data-dir=${PROFILE}`, "--no-first-run", "--no-default-browser-check", "https://www.cinecolombia.com"]);
 
   // Wait for Cloudflare to clear.
   let ready = false;
   for (let i = 0; i < 20; i++) {
-    await Bun.sleep(2000);
+    await sleep(2000);
     if (!cdpUp()) continue;
     const title = ab("document.title").replace(/"/g, "");
     if (title && !/moment|verificaci|verification/i.test(title)) {
@@ -140,7 +137,7 @@ export async function acquireSession(requireLogin: boolean, log: (s: string) => 
       log("iniciá sesión en la ventana de Chrome (correo + clave + reCAPTCHA)…");
       let logged = false;
       for (let i = 0; i < 100; i++) {
-        await Bun.sleep(3000);
+        await sleep(3000);
         if (isLoggedIn()) {
           logged = true;
           break;
@@ -232,15 +229,12 @@ async function ensureBrowser(log: (s: string) => void): Promise<void> {
   const coldLaunch = !cdpUp();
   if (coldLaunch) {
     log("abriendo Chrome (la compra se hace en el navegador)…");
-    Bun.spawn(
-      ["open", "-na", "Google Chrome", "--args", `--remote-debugging-port=${PORT}`, `--user-data-dir=${PROFILE}`, "--no-first-run", "--no-default-browser-check", "https://www.cinecolombia.com"],
-      { stdout: "ignore", stderr: "ignore" },
-    );
+    launch("open", ["-na", "Google Chrome", "--args", `--remote-debugging-port=${PORT}`, `--user-data-dir=${PROFILE}`, "--no-first-run", "--no-default-browser-check", "https://www.cinecolombia.com"]);
   }
   // Wait for Cloudflare / the page to be ready.
   let ready = false;
   for (let i = 0; i < 25; i++) {
-    await Bun.sleep(2000);
+    await sleep(2000);
     if (cdpUp() && tokenReady()) {
       ready = true;
       break;
@@ -258,7 +252,7 @@ async function ensureBrowser(log: (s: string) => void): Promise<void> {
     log("iniciá sesión en la ventana de Chrome (correo + clave + reCAPTCHA) para habilitar la compra…");
     let ok = false;
     for (let i = 0; i < 100; i++) {
-      await Bun.sleep(3000);
+      await sleep(3000);
       if (isLoggedIn()) {
         ok = true;
         break;

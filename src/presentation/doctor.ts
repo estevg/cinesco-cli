@@ -1,5 +1,6 @@
 // `cinesco doctor` — what's installed, what's missing, and the command that fixes it.
 // Agent-first: an agent runs this first to learn which chains it can drive right now.
+import { which } from "../shared/proc.ts";
 import { emitJson, heading, table, style, note } from "../shared/output.ts";
 import { loadSession as rfLoad, isExpired as rfExpired } from "../infrastructure/royalfilms/session.ts";
 import { loadSession as ccLoad } from "../infrastructure/cinecolombia/cinecolombia-token.ts";
@@ -13,7 +14,7 @@ interface Check {
 
 function has(bin: string): boolean {
   try {
-    return Bun.which(bin) != null;
+    return which(bin) != null;
   } catch {
     return false;
   }
