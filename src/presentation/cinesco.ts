@@ -40,6 +40,7 @@ import { resolveSeats as cmkResolve, defaultFare } from "../application/seats.ts
 import { paintSeatMap } from "./seatmap.ts";
 import { doctorCmd } from "./doctor.ts";
 import { skillsCmd } from "./skills.ts";
+import { bigText } from "./bigtext.ts";
 import { login as rfLogin, requireToken as rfRequireToken } from "../infrastructure/royalfilms/auth.ts";
 import { loadSession as rfLoadSession, isExpired as rfIsExpired, decodeJwt as rfDecodeJwt } from "../infrastructure/royalfilms/session.ts";
 import { apiGet as rfApiGet } from "../infrastructure/royalfilms/api.ts";
@@ -249,7 +250,10 @@ async function startWizard(): Promise<number> {
   );
   if (i === null) return 2;
   const p = PROVIDERS[i];
-  note(`\nelegiste: ${style.bold(p.name)} — ${p.notes ?? ""}\n`);
+  const banner = bigText(p.name);
+  if (banner) process.stdout.write("\n" + style.bold(style.cyan(banner)) + "\n");
+  note(style.dim(`   v${VERSION}`));
+  note(`${style.dim(p.notes ?? "")}\n`);
 
   // Every chain now exposes a PurchasePort — one flow drives them all (the wizard
   // branches on `auth` for the browser-assisted login).

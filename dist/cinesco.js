@@ -2896,6 +2896,37 @@ function skillsCmd(json) {
   return 0;
 }
 
+// src/presentation/bigtext.ts
+var F = {
+  A: ["████", "█  █", "████", "█  █", "█  █"],
+  B: ["███ ", "█  █", "███ ", "█  █", "███ "],
+  C: [" ███", "█   ", "█   ", "█   ", " ███"],
+  D: ["███ ", "█  █", "█  █", "█  █", "███ "],
+  E: ["████", "█   ", "███ ", "█   ", "████"],
+  F: ["████", "█   ", "███ ", "█   ", "█   "],
+  I: ["███", " █ ", " █ ", " █ ", "███"],
+  K: ["█  █", "█ █ ", "██  ", "█ █ ", "█  █"],
+  L: ["█   ", "█   ", "█   ", "█   ", "████"],
+  M: ["█   █", "██ ██", "█ █ █", "█   █", "█   █"],
+  N: ["█   █", "██  █", "█ █ █", "█  ██", "█   █"],
+  O: [" ██ ", "█  █", "█  █", "█  █", " ██ "],
+  R: ["███ ", "█  █", "███ ", "█ █ ", "█  █"],
+  S: [" ███", "█   ", " ██ ", "   █", "███ "],
+  Y: ["█   █", " █ █ ", "  █  ", "  █  ", "  █  "],
+  " ": ["  ", "  ", "  ", "  ", "  "]
+};
+function bigText(text) {
+  const chars = [...text.toUpperCase()].map((c) => F[c]).filter(Boolean);
+  if (!chars.length)
+    return "";
+  const rows = [];
+  for (let r = 0;r < 5; r++) {
+    rows.push(chars.map((g) => g[r].padEnd(Math.max(...g.map((x) => x.length)), " ")).join("  "));
+  }
+  return rows.join(`
+`);
+}
+
 // src/infrastructure/royalfilms/auth.ts
 async function login2(email, password) {
   const token = await apiPost(`/auth/login`, { email, password });
@@ -3219,8 +3250,13 @@ async function startWizard() {
   if (i === null)
     return 2;
   const p = PROVIDERS[i];
-  note2(`
-elegiste: ${style2.bold(p.name)} \u2014 ${p.notes ?? ""}
+  const banner = bigText(p.name);
+  if (banner)
+    process.stdout.write(`
+` + style2.bold(style2.cyan(banner)) + `
+`);
+  note2(style2.dim(`   v${VERSION}`));
+  note2(`${style2.dim(p.notes ?? "")}
 `);
   if (p.purchase)
     return runPurchaseWizard(p);
