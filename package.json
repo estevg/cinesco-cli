@@ -1,0 +1,25 @@
+{
+  "name": "royalfilms-cli",
+  "version": "0.1.0",
+  "description": "Agent-first CLI for the Royal Films (Colombia) public cinema API — cities, cinemas, billboard, showtimes.",
+  "type": "module",
+  "bin": {
+    "royalfilms": "./src/presentation/cli.ts",
+    "cinesco": "./src/presentation/cinesco.ts"
+  },
+  "scripts": {
+    "start": "bun src/presentation/cli.ts",
+    "build": "bun build src/presentation/cli.ts --compile --minify --outfile dist/royalfilms && bun build src/presentation/cinesco.ts --compile --minify --outfile dist/cinesco",
+    "build:all": "bash scripts/build-all.sh",
+    "test": "bun test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "files": [
+    "src",
+    "skills",
+    "README.md"
+  ]
+}
