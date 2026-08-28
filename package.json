@@ -4,8 +4,7 @@
   "description": "Buy movie tickets in Colombia from the terminal — Royal Films, Cine Colombia, Cinemark. Agent-first, up to the payment link (never charges).",
   "type": "module",
   "bin": {
-    "cinesco": "dist/cinesco.js",
-    "royalfilms": "dist/royalfilms.js"
+    "cinesco": "dist/cinesco.js"
   },
   "files": [
     "dist",
@@ -25,6 +24,16 @@
     "verify:dist": "bash scripts/verify-dist.sh",
     "prepublishOnly": "bun run build"
   },
-  "keywords": ["cine", "cinema", "tickets", "colombia", "cli", "agent", "royalfilms", "cinecolombia", "cinemark"],
+  "keywords": [
+    "cine",
+    "cinema",
+    "tickets",
+    "colombia",
+    "cli",
+    "agent",
+    "royalfilms",
+    "cinecolombia",
+    "cinemark"
+  ],
   "license": "MIT"
 }
