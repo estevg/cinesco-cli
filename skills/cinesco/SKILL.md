@@ -58,6 +58,14 @@ Output is JSON when stdout is not a TTY (an agent gets parseable data without pa
 
 ## Conversational booking (the agent flow)
 
+When the user leads with a **movie** (not a chain), start with cross-chain search — it
+finds the film across all three chains at once and returns each chain's movie id + region:
+
+```bash
+cinesco search "spider-man" --city bogota --json
+# → per chain: { chain, region, regionId, matches:[{id,title}] } + nextSteps (showtimes cmds)
+```
+
 When the user says something like *"quiero ver una peli en Barranquilla"*, DON'T run the
 interactive `start` wizard (it needs a live terminal). Instead fill five slots by calling
 the JSON commands and asking the user only for what's missing:

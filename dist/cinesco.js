@@ -2864,6 +2864,9 @@ Agent-first: JSON output automatically when stdout is not a TTY; exit 0 ok / 1 a
 - \`cinesco providers\`   the three chains + capabilities
 - \`cinesco schema\`      command contract (for agents)
 
+## Search a movie across all 3 chains
+- \`cinesco search "<movie>" --city <city> --json\`  → per chain: matches + region + nextSteps
+
 ## Browse (headless, no login)
 - \`cinesco <chain> regions\`                 cities
 - \`cinesco <chain> cinemas [region]\`        cinemas
@@ -3161,6 +3164,7 @@ function schemaCmd(json) {
       { command: "<provider> seats", args: ["--cinema", "--session"], summary: "Butacas libres (datos)" },
       { command: "<provider> fares", args: ["--cinema", "--session"], summary: "Tipos de boleta + precio" },
       { command: "<provider> order", args: ["--cinema", "--session", "--seats", "[--bank]"], summary: "Reservar + link de pago (no cobra)" },
+      { command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas" },
       { command: "start", args: [], summary: "Asistente: eleg\xED cadena y explor\xE1 (interactivo)" }
     ],
     exitCodes: { "0": "ok", "1": "api/network", "2": "usage" }
@@ -3505,6 +3509,54 @@ async function runPortVerb(p, verb, flags, json) {
     return fail("provider-error", e.message);
   }
 }
+function norm(s) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+async function searchCmd(query, cityName, json) {
+  if (!query) {
+    if (json)
+      emitJson2({ ok: false, command: "search", error: { code: "usage", message: 'us\xE1: cinesco search "<pelicula>" --city <ciudad>' } });
+    else
+      errline('us\xE1: cinesco search "<pelicula>" --city <ciudad>');
+    return 2;
+  }
+  const q = norm(query);
+  const results = await Promise.all(PROVIDERS.map(async (p) => {
+    try {
+      const catalog = new BrowseCatalog(p.catalog);
+      const regions = await catalog.regions();
+      const region = cityName ? regions.find((r) => norm(r.name) === norm(cityName)) ?? regions.find((r) => norm(r.name).includes(norm(cityName))) : undefined;
+      if (cityName && !region)
+        return { chain: p.id, chainName: p.name, error: `sin ciudad "${cityName}"` };
+      const movies = await catalog.movies(region?.id);
+      const matches = movies.filter((m) => norm(m.title).includes(q)).map((m) => ({ id: m.id, title: m.title }));
+      return { chain: p.id, chainName: p.name, region: region?.name, regionId: region?.id, matches };
+    } catch (e) {
+      return { chain: p.id, chainName: p.name, error: e.message };
+    }
+  }));
+  const hits = results.filter((r) => ("matches" in r) && (r.matches?.length ?? 0) > 0);
+  const steps = hits.flatMap((r) => r.matches.map((m) => `${r.chain} showtimes ${m.id} ${r.regionId}`));
+  if (json) {
+    emitJson2({ ok: true, command: "search", count: hits.length, data: results, nextSteps: steps.slice(0, 6) });
+    return 0;
+  }
+  heading2(`Buscando "${query}"${cityName ? ` en ${cityName}` : ""}`);
+  for (const r of results) {
+    if (r.error) {
+      note2(`${style2.cyan(r.chainName.padEnd(14))} ${style2.dim(r.error)}`);
+      continue;
+    }
+    if (!r.matches.length) {
+      note2(`${style2.cyan(r.chainName.padEnd(14))} ${style2.dim("sin resultados")}`);
+      continue;
+    }
+    note2(`${style2.cyan(r.chainName.padEnd(14))} ${style2.green(r.matches.length + " resultado(s)")}${r.region ? " \xB7 " + r.region : ""}`);
+    for (const m of r.matches)
+      note2(`   ${style2.dim(m.id)}  ${m.title}   ${style2.dim(`\u2192 cinesco ${r.chain} showtimes ${m.id} ${r.regionId}`)}`);
+  }
+  return 0;
+}
 async function main() {
   const { positionals, flags, json: jsonFlag } = parseArgs(process.argv.slice(2));
   const json = jsonMode(jsonFlag);
@@ -3555,6 +3607,9 @@ tip: 'cinesco start' hace todo el flujo guiado (eleg\xED cadena y segu\xED).`));
   }
   if (positionals[0] === "start") {
     return startWizard();
+  }
+  if (positionals[0] === "search") {
+    return searchCmd(positionals.slice(1).join(" ").trim(), flags.city || flags.region || "", json);
   }
   const p = getProvider(positionals[0]);
   if (!p) {

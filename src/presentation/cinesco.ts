@@ -161,6 +161,7 @@ function schemaCmd(json: boolean): void {
       { command: "<provider> seats", args: ["--cinema", "--session"], summary: "Butacas libres (datos)" },
       { command: "<provider> fares", args: ["--cinema", "--session"], summary: "Tipos de boleta + precio" },
       { command: "<provider> order", args: ["--cinema", "--session", "--seats", "[--bank]"], summary: "Reservar + link de pago (no cobra)" },
+      { command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas" },
       { command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
     ],
     exitCodes: { "0": "ok", "1": "api/network", "2": "usage" },
@@ -519,6 +520,53 @@ async function runPortVerb(p: Provider, verb: string, flags: Record<string, stri
   }
 }
 
+// Normalise for fuzzy matching: lowercase, strip accents/diacritics.
+function norm(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+// Cross-chain movie search: which chains have `query` in `cityName`, and in which movies.
+// Resolves the city per chain (each uses different region ids) and matches titles.
+async function searchCmd(query: string, cityName: string, json: boolean): Promise<number> {
+  if (!query) {
+    if (json) emitJson({ ok: false, command: "search", error: { code: "usage", message: 'usá: cinesco search "<pelicula>" --city <ciudad>' } });
+    else errline('usá: cinesco search "<pelicula>" --city <ciudad>');
+    return 2;
+  }
+  const q = norm(query);
+  const results = await Promise.all(
+    PROVIDERS.map(async (p) => {
+      try {
+        const catalog = new BrowseCatalog(p.catalog);
+        const regions = await catalog.regions();
+        const region = cityName
+          ? regions.find((r) => norm(r.name) === norm(cityName)) ?? regions.find((r) => norm(r.name).includes(norm(cityName)))
+          : undefined;
+        if (cityName && !region) return { chain: p.id, chainName: p.name, error: `sin ciudad "${cityName}"` };
+        const movies = await catalog.movies(region?.id);
+        const matches = movies.filter((m) => norm(m.title).includes(q)).map((m) => ({ id: m.id, title: m.title }));
+        return { chain: p.id, chainName: p.name, region: region?.name, regionId: region?.id, matches };
+      } catch (e) {
+        return { chain: p.id, chainName: p.name, error: (e as Error).message };
+      }
+    }),
+  );
+  const hits = results.filter((r) => "matches" in r && (r.matches?.length ?? 0) > 0);
+  const steps = hits.flatMap((r: any) => r.matches.map((m: any) => `${r.chain} showtimes ${m.id} ${r.regionId}`));
+  if (json) {
+    emitJson({ ok: true, command: "search", count: hits.length, data: results, nextSteps: steps.slice(0, 6) });
+    return 0;
+  }
+  heading(`Buscando "${query}"${cityName ? ` en ${cityName}` : ""}`);
+  for (const r of results as any[]) {
+    if (r.error) { note(`${style.cyan(r.chainName.padEnd(14))} ${style.dim(r.error)}`); continue; }
+    if (!r.matches.length) { note(`${style.cyan(r.chainName.padEnd(14))} ${style.dim("sin resultados")}`); continue; }
+    note(`${style.cyan(r.chainName.padEnd(14))} ${style.green(r.matches.length + " resultado(s)")}${r.region ? " · " + r.region : ""}`);
+    for (const m of r.matches) note(`   ${style.dim(m.id)}  ${m.title}   ${style.dim(`→ cinesco ${r.chain} showtimes ${m.id} ${r.regionId}`)}`);
+  }
+  return 0;
+}
+
 async function main(): Promise<number> {
   const { positionals, flags, json: jsonFlag } = parseArgs(process.argv.slice(2));
   const json = jsonMode(jsonFlag);
@@ -562,6 +610,9 @@ async function main(): Promise<number> {
   }
   if (positionals[0] === "start") {
     return startWizard();
+  }
+  if (positionals[0] === "search") {
+    return searchCmd(positionals.slice(1).join(" ").trim(), flags.city || flags.region || "", json);
   }
 
   // provider-scoped: cinesco <provider> <verb> ...

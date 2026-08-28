@@ -12,6 +12,9 @@ Agent-first: JSON output automatically when stdout is not a TTY; exit 0 ok / 1 a
 - \`cinesco providers\`   the three chains + capabilities
 - \`cinesco schema\`      command contract (for agents)
 
+## Search a movie across all 3 chains
+- \`cinesco search "<movie>" --city <city> --json\`  → per chain: matches + region + nextSteps
+
 ## Browse (headless, no login)
 - \`cinesco <chain> regions\`                 cities
 - \`cinesco <chain> cinemas [region]\`        cinemas
