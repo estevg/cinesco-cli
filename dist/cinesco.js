@@ -2871,10 +2871,15 @@ Agent-first: JSON output automatically when stdout is not a TTY; exit 0 ok / 1 a
 - \`cinesco <chain> showtimes <movieId> <region>\`  showtimes
   chain = royalfilms | cinecolombia | cinemark
 
-## Buy (up to the payment link — the CLI NEVER charges)
-- \`cinesco start\`  guided wizard: pick a chain → login → city → movie → cinema →
-  showtime → seat map → seats → (bank) → payment link.
-- Generates an external payment link/HTML; the human pays at their bank/gateway.
+## Buy — interactive (human) OR agent-ready (--json)
+- Human: \`cinesco start\` — guided wizard (needs a terminal).
+- Agent (no wizard, credentials via <CHAIN>_EMAIL / <CHAIN>_PASSWORD env vars):
+  - \`cinesco <chain> seats  --cinema <id> --session <id> --json\`   free seats
+  - \`cinesco <chain> fares  --cinema <id> --session <id> --json\`   ticket types + price
+  - \`cinesco <chain> order  --cinema <id> --session <id> --seats F6 --movie <id> --region <city> [--bank 1007] --json\`
+    → { orderId, total, seats, paymentUrl }. NEVER charges — stops at the link.
+- Conversational flow: fill slots (city→movie→cinema→day→time→seat) by calling the JSON
+  commands and asking only for what's missing. See skills/cinesco/SKILL.md.
 
 ## Dependencies
 - **Cine Colombia** needs **agent-browser** (login + checkout via browser; Cloudflare + reCAPTCHA).
@@ -3153,6 +3158,9 @@ function schemaCmd(json) {
       { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena" },
       { command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
       { command: "<provider> showtimes", args: ["movieId", "[region]"], summary: "Funciones" },
+      { command: "<provider> seats", args: ["--cinema", "--session"], summary: "Butacas libres (datos)" },
+      { command: "<provider> fares", args: ["--cinema", "--session"], summary: "Tipos de boleta + precio" },
+      { command: "<provider> order", args: ["--cinema", "--session", "--seats", "[--bank]"], summary: "Reservar + link de pago (no cobra)" },
       { command: "start", args: [], summary: "Asistente: eleg\xED cadena y explor\xE1 (interactivo)" }
     ],
     exitCodes: { "0": "ok", "1": "api/network", "2": "usage" }
@@ -3410,6 +3418,93 @@ tras pagar, las boletas llegan a tu correo.`));
     }
   }
 }
+async function runPortVerb(p, verb, flags, json) {
+  const cmd = `${p.id} ${verb}`;
+  const fail = (code, message) => {
+    if (json)
+      emitJson2({ ok: false, command: cmd, error: { code, message } });
+    else
+      errline(`${cmd}: ${message}`);
+    return 1;
+  };
+  if (!p.purchase)
+    return fail("no-purchase", `${p.name} no tiene compra por API.`);
+  const purchase = new PurchaseTickets(p.purchase);
+  const env = (k) => process.env[`${p.id.toUpperCase()}_${k}`];
+  const email = flags.email || env("EMAIL") || "";
+  const password = flags.password || env("PASSWORD") || "";
+  const login3 = async () => {
+    if (p.auth === "browser-assisted")
+      return purchase.login({ email: "", password: "" });
+    if (!email || !password)
+      throw new Error(`faltan credenciales \u2014 pon\xE9 ${p.id.toUpperCase()}_EMAIL y ${p.id.toUpperCase()}_PASSWORD (o --email/--password)`);
+    return purchase.login({ email: email.trim(), password });
+  };
+  const showtime = {
+    id: flags.session,
+    cinemaId: flags.cinema,
+    hall: flags.hall,
+    movieId: flags.movie,
+    date: flags.date ?? "",
+    time: flags.time
+  };
+  try {
+    if (verb === "seats" || verb === "fares") {
+      if (!flags.session || !flags.cinema)
+        return fail("usage", "faltan --cinema y --session");
+      const session = await login3();
+      if (verb === "fares") {
+        const fares = await purchase.fares(showtime, session);
+        out(json, cmd, fares, [`${p.id} order --cinema ${flags.cinema} --session ${flags.session} --seats <labels>`], () => {
+          heading2(`${p.name} \xB7 tarifas`);
+          table2(fares.map((f) => ({ code: f.code, boleta: f.name, precio: "$" + (f.priceCents / 100).toLocaleString("es-CO") })), [{ key: "code", label: "C\xF3digo", color: style2.cyan }, { key: "boleta", label: "Boleta" }, { key: "precio", label: "Precio" }]);
+        });
+        return 0;
+      }
+      const map = await purchase.seatMap(showtime, session);
+      const seats = map.rows.flatMap((r) => r.seats);
+      const free = seats.filter((x) => x.available).map((x) => ({ label: x.label, priceCents: x.priceCents ?? null, special: !!x.special }));
+      out(json, cmd, free, [`${p.id} order --cinema ${flags.cinema} --session ${flags.session} --seats <labels>`], () => {
+        heading2(`${p.name} \xB7 butacas libres`);
+        note2(`${free.length}/${seats.length} libres`);
+        paintSeatMap2(map);
+      });
+      return 0;
+    }
+    if (verb === "order") {
+      for (const req of ["cinema", "session", "seats"])
+        if (!flags[req])
+          return fail("usage", `falta --${req}`);
+      const session = await login3();
+      const map = await purchase.seatMap(showtime, session);
+      const { seats, problems } = resolveSeats2((flags.seats || "").split(","), map);
+      if (problems.length)
+        return fail("seat-error", problems.join("; "));
+      const perSeatPriced = map.rows.some((r) => r.seats.some((x) => x.priceCents != null));
+      const fare = perSeatPriced ? undefined : defaultFare(await purchase.fares(showtime, session));
+      const methods = purchase.paymentMethods();
+      const method = flags.bank ? methods.find((m) => m.code === flags.bank) : methods[0];
+      let title = flags.title ?? "";
+      if (!title && flags.region && flags.movie) {
+        try {
+          title = (await new BrowseCatalog(p.catalog).movies(flags.region)).find((m) => m.id === flags.movie)?.title ?? "";
+        } catch {}
+      }
+      const movie = { id: flags.movie ?? "", title };
+      const { order, link } = await purchase.checkout({ session, showtime, movie, regionId: flags.region, seats, fare, method });
+      out(json, cmd, [{ orderId: order.id, total: order.total, seats: order.seatLabels, paymentUrl: link.url, method: link.method }], [`abr\xED el link para pagar (el CLI no cobra): ${link.url}`], () => {
+        heading2("\xA1Orden lista para pagar!");
+        note2(`orden ${order.id} \xB7 ${order.seatLabels.join(", ")} \xB7 total $${order.total.toLocaleString("es-CO")}${link.method ? " \xB7 " + link.method : ""}`);
+        note2("link de pago (el CLI no cobra):");
+        note2("  " + style2.cyan(link.url));
+      });
+      return 0;
+    }
+    return fail("usage", `verbo desconocido: ${verb}`);
+  } catch (e) {
+    return fail("provider-error", e.message);
+  }
+}
 async function main() {
   const { positionals, flags, json: jsonFlag } = parseArgs(process.argv.slice(2));
   const json = jsonMode(jsonFlag);
@@ -3471,6 +3566,9 @@ tip: 'cinesco start' hace todo el flujo guiado (eleg\xED cadena y segu\xED).`));
     return 2;
   }
   const verb = positionals[1];
+  if (verb === "seats" || verb === "fares" || verb === "order") {
+    return runPortVerb(p, verb, flags, json);
+  }
   if (p.id === "royalfilms" && (verb === "payment-wait" || verb === "sales")) {
     try {
       const { token } = requireToken2();

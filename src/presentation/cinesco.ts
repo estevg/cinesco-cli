@@ -5,6 +5,7 @@
 import { sleep, launch } from "../shared/proc.ts";
 import { PROVIDERS, getProvider } from "../infrastructure/registry.ts";
 import type { Provider } from "../domain/ports.ts";
+import type { Showtime, Movie } from "../domain/entities.ts";
 import { emitJson, jsonMode, style, heading, table, note, errline } from "../shared/output.ts";
 import { promptSelect } from "../shared/prompt.ts";
 import { acquireSession, loadSession, reserveViaBrowser, cancelViaBrowser, checkoutViaBrowser, orderStatusViaBrowser } from "../infrastructure/cinecolombia/cinecolombia-token.ts";
@@ -157,6 +158,9 @@ function schemaCmd(json: boolean): void {
       { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena" },
       { command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
       { command: "<provider> showtimes", args: ["movieId", "[region]"], summary: "Funciones" },
+      { command: "<provider> seats", args: ["--cinema", "--session"], summary: "Butacas libres (datos)" },
+      { command: "<provider> fares", args: ["--cinema", "--session"], summary: "Tipos de boleta + precio" },
+      { command: "<provider> order", args: ["--cinema", "--session", "--seats", "[--bank]"], summary: "Reservar + link de pago (no cobra)" },
       { command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
     ],
     exitCodes: { "0": "ok", "1": "api/network", "2": "usage" },
@@ -430,6 +434,91 @@ async function runPurchaseWizard(provider: Provider): Promise<number> {
 }
 
 
+// Agent-ready purchase verbs (uniform over any PurchasePort): seats · fares · order.
+// Non-interactive: credentials come from <CHAIN>_EMAIL / <CHAIN>_PASSWORD env vars
+// (or --email/--password). Output is JSON; `order` stops at the payment link — never charges.
+async function runPortVerb(p: Provider, verb: string, flags: Record<string, string>, json: boolean): Promise<number> {
+  const cmd = `${p.id} ${verb}`;
+  const fail = (code: string, message: string) => {
+    if (json) emitJson({ ok: false, command: cmd, error: { code, message } });
+    else errline(`${cmd}: ${message}`);
+    return 1;
+  };
+  if (!p.purchase) return fail("no-purchase", `${p.name} no tiene compra por API.`);
+  const purchase = new PurchaseTickets(p.purchase);
+
+  const env = (k: string) => process.env[`${p.id.toUpperCase()}_${k}`];
+  const email = flags.email || env("EMAIL") || "";
+  const password = flags.password || env("PASSWORD") || "";
+
+  const login = async () => {
+    if (p.auth === "browser-assisted") return purchase.login({ email: "", password: "" });
+    if (!email || !password)
+      throw new Error(`faltan credenciales — poné ${p.id.toUpperCase()}_EMAIL y ${p.id.toUpperCase()}_PASSWORD (o --email/--password)`);
+    return purchase.login({ email: email.trim(), password });
+  };
+
+  const showtime: Showtime = {
+    id: flags.session, cinemaId: flags.cinema, hall: flags.hall,
+    movieId: flags.movie, date: flags.date ?? "", time: flags.time,
+  };
+
+  try {
+    if (verb === "seats" || verb === "fares") {
+      if (!flags.session || !flags.cinema) return fail("usage", "faltan --cinema y --session");
+      const session = await login();
+      if (verb === "fares") {
+        const fares = await purchase.fares(showtime, session);
+        out(json, cmd, fares, [`${p.id} order --cinema ${flags.cinema} --session ${flags.session} --seats <labels>`], () => {
+          heading(`${p.name} · tarifas`);
+          table(fares.map((f) => ({ code: f.code, boleta: f.name, precio: "$" + (f.priceCents / 100).toLocaleString("es-CO") })),
+            [{ key: "code", label: "Código", color: style.cyan }, { key: "boleta", label: "Boleta" }, { key: "precio", label: "Precio" }]);
+        });
+        return 0;
+      }
+      const map = await purchase.seatMap(showtime, session);
+      const seats = map.rows.flatMap((r) => r.seats);
+      const free = seats.filter((x) => x.available).map((x) => ({ label: x.label, priceCents: x.priceCents ?? null, special: !!x.special }));
+      out(json, cmd, free, [`${p.id} order --cinema ${flags.cinema} --session ${flags.session} --seats <labels>`], () => {
+        heading(`${p.name} · butacas libres`);
+        note(`${free.length}/${seats.length} libres`);
+        paintSeatMap(map);
+      });
+      return 0;
+    }
+
+    if (verb === "order") {
+      for (const req of ["cinema", "session", "seats"]) if (!flags[req]) return fail("usage", `falta --${req}`);
+      const session = await login();
+      const map = await purchase.seatMap(showtime, session);
+      const { seats, problems } = cmkResolve((flags.seats || "").split(","), map);
+      if (problems.length) return fail("seat-error", problems.join("; "));
+      const perSeatPriced = map.rows.some((r) => r.seats.some((x) => x.priceCents != null));
+      const fare = perSeatPriced ? undefined : defaultFare(await purchase.fares(showtime, session));
+      const methods = purchase.paymentMethods();
+      const method = flags.bank ? methods.find((m) => m.code === flags.bank) : methods[0];
+      let title = flags.title ?? "";
+      if (!title && flags.region && flags.movie) {
+        try { title = (await new BrowseCatalog(p.catalog).movies(flags.region)).find((m) => m.id === flags.movie)?.title ?? ""; } catch { /* best effort */ }
+      }
+      const movie: Movie = { id: flags.movie ?? "", title };
+      const { order, link } = await purchase.checkout({ session, showtime, movie, regionId: flags.region, seats, fare, method });
+      out(json, cmd, [{ orderId: order.id, total: order.total, seats: order.seatLabels, paymentUrl: link.url, method: link.method }],
+        [`abrí el link para pagar (el CLI no cobra): ${link.url}`], () => {
+          heading("¡Orden lista para pagar!");
+          note(`orden ${order.id} · ${order.seatLabels.join(", ")} · total $${order.total.toLocaleString("es-CO")}${link.method ? " · " + link.method : ""}`);
+          note("link de pago (el CLI no cobra):");
+          note("  " + style.cyan(link.url));
+        });
+      return 0;
+    }
+
+    return fail("usage", `verbo desconocido: ${verb}`);
+  } catch (e) {
+    return fail("provider-error", (e as Error).message);
+  }
+}
+
 async function main(): Promise<number> {
   const { positionals, flags, json: jsonFlag } = parseArgs(process.argv.slice(2));
   const json = jsonMode(jsonFlag);
@@ -484,6 +573,11 @@ async function main(): Promise<number> {
     return 2;
   }
   const verb = positionals[1];
+
+  // Agent-ready purchase verbs (uniform, --json): seats · fares · order
+  if (verb === "seats" || verb === "fares" || verb === "order") {
+    return runPortVerb(p, verb, flags, json);
+  }
 
   // Royal Films: poll for a payment (a new sale appearing). Headless — no browser.
   if (p.id === "royalfilms" && (verb === "payment-wait" || verb === "sales")) {

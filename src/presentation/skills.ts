@@ -19,10 +19,15 @@ Agent-first: JSON output automatically when stdout is not a TTY; exit 0 ok / 1 a
 - \`cinesco <chain> showtimes <movieId> <region>\`  showtimes
   chain = royalfilms | cinecolombia | cinemark
 
-## Buy (up to the payment link — the CLI NEVER charges)
-- \`cinesco start\`  guided wizard: pick a chain → login → city → movie → cinema →
-  showtime → seat map → seats → (bank) → payment link.
-- Generates an external payment link/HTML; the human pays at their bank/gateway.
+## Buy — interactive (human) OR agent-ready (--json)
+- Human: \`cinesco start\` — guided wizard (needs a terminal).
+- Agent (no wizard, credentials via <CHAIN>_EMAIL / <CHAIN>_PASSWORD env vars):
+  - \`cinesco <chain> seats  --cinema <id> --session <id> --json\`   free seats
+  - \`cinesco <chain> fares  --cinema <id> --session <id> --json\`   ticket types + price
+  - \`cinesco <chain> order  --cinema <id> --session <id> --seats F6 --movie <id> --region <city> [--bank 1007] --json\`
+    → { orderId, total, seats, paymentUrl }. NEVER charges — stops at the link.
+- Conversational flow: fill slots (city→movie→cinema→day→time→seat) by calling the JSON
+  commands and asking only for what's missing. See skills/cinesco/SKILL.md.
 
 ## Dependencies
 - **Cine Colombia** needs **agent-browser** (login + checkout via browser; Cloudflare + reCAPTCHA).

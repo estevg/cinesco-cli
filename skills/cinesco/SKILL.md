@@ -56,6 +56,55 @@ cinesco <chain> showtimes <movieId> <region> # showtimes
 Output is JSON when stdout is not a TTY (an agent gets parseable data without passing
 `--json`). On a terminal you get tables.
 
+## Conversational booking (the agent flow)
+
+When the user says something like *"quiero ver una peli en Barranquilla"*, DON'T run the
+interactive `start` wizard (it needs a live terminal). Instead fill five slots by calling
+the JSON commands and asking the user only for what's missing:
+
+| Slot | How to resolve it | Command |
+|---|---|---|
+| **city** | fuzzy-match the user's city to a region id | `cinesco <chain> regions --json` |
+| **movie** | list the billboard, offer titles | `cinesco <chain> movies <city> --json` |
+| **cinema** | group showtimes by cinema | `cinesco <chain> showtimes <movieId> <city> --json` |
+| **day** | filter showtimes by date (map "hoy/mañana/viernes") | (same output) |
+| **time** | filter by time ("7pm" → 19:00), offer the nearest | (same output) |
+
+Ask only for the empty slots, confirm, then show the concrete options. Example:
+
+```
+User:  quiero ver una peli en Barranquilla
+Agent: (cinesco cinemark movies barranquilla --json)
+       "En Barranquilla hay Spider-Man, Coyote vs Acme, La Odisea… ¿cuál? ¿y en qué cine/día/hora?"
+User:  Spider-Man, en Viva Barranquilla, el viernes tipo 7pm
+Agent: (cinesco cinemark showtimes 109320 barranquilla --json  → filter cinema=Viva, ~19:00)
+       "Tengo 18:15, 19:00 y 21:45 en Viva. ¿Cuál?"
+User:  la de las 7
+Agent: (cinesco cinemark seats --cinema <id> --session <id> --json → offer free seats)
+       "¿Qué butaca? Hay F6, F7, G5…"
+User:  F6
+Agent: (cinesco cinemark order --cinema <id> --session <id> --movie 109320 --region barranquilla --seats F6 --bank 1007 --json)
+       "Listo — orden creada. Pagá acá (no cobré nada): <paymentUrl>"
+```
+
+## Agent-ready purchase commands (`--json`)
+
+Credentials come from env vars (never typed in chat): `<CHAIN>_EMAIL`, `<CHAIN>_PASSWORD`
+(e.g. `CINEMARK_EMAIL`, `CINEMARK_PASSWORD`, `ROYALFILMS_EMAIL`, `ROYALFILMS_PASSWORD`).
+
+```bash
+cinesco <chain> seats  --cinema <id> --session <id> --json      # free seats (labels, price, special)
+cinesco <chain> fares  --cinema <id> --session <id> --json      # ticket types + price
+cinesco <chain> order  --cinema <id> --session <id> --seats F6,F7 \
+        --movie <id> --region <city> [--bank 1007] --json       # reserve + payment link
+# order → { orderId, total, seats, paymentUrl, method }.  Never charges — stops at the link.
+```
+
+- Royal Films / Cinemark: fully non-interactive with the env vars above.
+- Cine Colombia is browser-assisted (Cloudflare) — its `order` needs the interactive
+  browser session; guide the user to `cinesco start` for that chain.
+- PSE banks (Cinemark `--bank`): 1007 BANCOLOMBIA, 1051 DAVIVIENDA, 1013 BBVA, 1507 NEQUI, 1551 DAVIPLATA, …
+
 ## Buy (full wizard)
 
 ```bash
