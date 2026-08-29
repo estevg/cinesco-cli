@@ -1,5 +1,18 @@
 # cinesco
 
+<div align="center">
+<pre>
+ ▄▄█████▄   ███   ███▄   ███  ▄████████   ▄█████▄    ▄█████▄▄    ▄█████▄  
+▄███▀▀▀███  ███   ████▄  ███  ████▀▀▀▀▀  ███  ▀▀▀▀  ███▀▀▀███   ███▀▀▀███▄
+███         ███   █████▄ ███  ████████▄  ▀█████▄▄   ███        ███▀    ███
+███    ▄▄   ███   ███ ██████  ████▀▀▀▀      ▀▀████  ███    ▄   ███▄    ███
+▀███▄▄▄███  ███   ███  █████  ████▄▄▄▄▄  ███▄▄▄███  ███▄▄▄███▀  ███▄▄▄███▀
+  ▀█████▀   ███   ███   ▀███  ▀████████   ▀█████▀    ▀█████▀▀    ▀█████▀  
+</pre>
+</div>
+
+<div align="center"><sub>una terminal, todas las salas de cine</sub></div>
+
 Buy movie tickets in Colombia from the terminal, across 3 chains — **Royal Films**,
 **Cine Colombia** and **Cinemark**. Built for an agent to operate and a human to supervise.
 
@@ -9,14 +22,25 @@ PlacetoPay) and you pay at your bank.
 
 ## Install
 
-Runs on Node (built with Bun). No npm account needed — install straight from GitHub:
+No npm account needed — install straight from GitHub. **Bun is the simplest** (installs clean, no flags):
 
 ```bash
-npx github:estevg/cinesco-cli doctor          # run without installing
-bun add -g github:estevg/cinesco-cli          # or install globally with Bun
+bun add -g github:estevg/cinesco-cli               # recommended
 ```
 
-`cinesco doctor` tells you what's present, what's missing, and the command that fixes it.
+With **npm** you must pass `--install-links` (npm 11.x otherwise leaves a broken symlink):
+
+```bash
+npm i -g --install-links github:estevg/cinesco-cli
+```
+
+Or run it once without installing:
+
+```bash
+npx github:estevg/cinesco-cli doctor
+```
+
+Re-run the same command to update. `cinesco doctor` tells you what's present, what's missing, and the command that fixes it.
 
 ### agent-browser (Cine Colombia only)
 
@@ -82,6 +106,33 @@ cinesco skills                        # or read the manual straight from the bin
 ```
 
 ## Chains
+
+<div align="center">
+<pre>
+█████▄  ▄████▄  ██  ██   ▄██   ▄█▄        █████ ██  ██     ███ ▄██  ▄████▄
+██▄▄██  ██  ██▄  ████   ▄█▀██  ███        ██▄▄  ██  ██     ███ ███  ██▄▄▄ 
+██▀██▄  ██  ██▀   ██    ██▄██▄ ███        ██▀▀  ██  ██     █▀███ █  ▄▄▀▀██
+██  ██▄ ▀████▀    ██   ██▀▀▀██ ▀█████     ██    ██  █████  █  █▀ █  ▀████▀
+</pre>
+</div>
+
+<div align="center">
+<pre>
+▄█▀██  █▄ ██  █  ██▀▀▀    ██▀█▄ ▄█▀██  █▄   ▄█▀██  ██▄ ██  ████▄ ██  ▄██  
+██     ██ ███▄█  ██▀▀    ██     █   ██ █▀   ██  ██ ██████  ██▀█▄ ██  █▄██ 
+▀█▄██  █▀ ██ ▀█  ██▄▄▄    ██▄█▀ ▀█▄██  ████ ▀█▄██  █ ██ █  ██▄█▀ ██ ██▀▀██
+</pre>
+</div>
+
+<div align="center">
+<pre>
+ ▄█████▄  ███  ██▄  ▄██  ███████  ███▄  ███    ▄███    ███████▄  ███ ▄███ 
+███▀ ▀▀▀  ███  ████ ███  ███      ████ ████    ████▄   ███  ███  ███▄██▀  
+███       ███  ██▀█████  ███████  ██▀█▄████   ██▀ ██   ███████▀  ██████▄  
+███  ▄██  ███  ██  ████  ███      ██ ███ ██  ▄███████  ███ ███   ███ ▀██▄ 
+ ▀█████▀  ███  ██   ███  ███████  ██ ▀██ ██  ██▀   ██▄ ███  ███  ███  ▀██▄
+</pre>
+</div>
 
 | Chain | Browse | Login | Browser | Payment |
 |---|---|---|---|---|
