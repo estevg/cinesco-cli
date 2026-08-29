@@ -178,49 +178,80 @@ function providersCmd(json: boolean): void {
   }
 }
 
+// Section order for the human help, shared by the global schema and per-chain help.
+const SCHEMA_SECTIONS = ["Explorar", "Sesión", "Comprar", "Utilidad"];
+type CommandRow = { group: string; command: string; args: string[]; summary: string };
+
+const SCHEMA_COMMANDS: CommandRow[] = [
+  { group: "Explorar", command: "providers", args: [], summary: "Listar las cadenas" },
+  { group: "Explorar", command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empezá por acá)" },
+  { group: "Explorar", command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena (region = ID de 'regions')" },
+  { group: "Explorar", command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
+  { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]"], summary: "Funciones. Cada fila trae session/cinema/hall/movie para los comandos de compra" },
+  { group: "Explorar", command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas a la vez" },
+  { group: "Sesión", command: "<provider> login", args: [], summary: "Guardar sesión (Royal Films, Cine Colombia). Cinemark entra por compra" },
+  { group: "Sesión", command: "<provider> status", args: [], summary: "¿Hay sesión activa y de quién?" },
+  { group: "Comprar", command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
+  { group: "Comprar", command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vacío si la función tiene tarifa única)" },
+  { group: "Comprar", command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
+  { group: "Comprar", command: "<provider> buy", args: [], summary: "Asistente de compra completo de una cadena (interactivo)" },
+  { group: "Comprar", command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
+  { group: "Utilidad", command: "doctor", args: [], summary: "Qué está instalado / logueado y cómo arreglar cada hueco" },
+  { group: "Utilidad", command: "skills", args: [], summary: "Manual para agentes servido por el binario" },
+  { group: "Utilidad", command: "schema", args: ["[--json]"], summary: "Esta superficie (alias: --help, -h, help)" },
+];
+
+// Print commands grouped under their section headings (STDERR, human mode).
+function renderCommandGroups(cmds: CommandRow[]): void {
+  for (const group of SCHEMA_SECTIONS) {
+    const rows = cmds.filter((c) => c.group === group);
+    if (!rows.length) continue;
+    process.stderr.write(style.bold(style.cyan(`\n  ${group}\n`)));
+    table(rows, [
+      { key: "command", label: "Comando", color: style.cyan },
+      { key: "summary", label: "Descripción", max: 58 },
+    ]);
+  }
+}
+
 function schemaCmd(json: boolean): void {
   const spec = {
     name: "cinesco",
     version: VERSION,
     schemaVersion: 1,
     providers: PROVIDERS.map((p) => ({ id: p.id, name: p.name, auth: p.auth, capabilities: p.capabilities })),
-    // `group` sections the human help; the JSON stays a flat list (agents read
-    // `commands`), with `group` as extra metadata. Order = display order.
-    commands: [
-      { group: "Explorar", command: "providers", args: [], summary: "Listar las cadenas" },
-      { group: "Explorar", command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empezá por acá)" },
-      { group: "Explorar", command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena (region = ID de 'regions')" },
-      { group: "Explorar", command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
-      { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]"], summary: "Funciones. Cada fila trae session/cinema/hall/movie para los comandos de compra" },
-      { group: "Explorar", command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas a la vez" },
-      { group: "Sesión", command: "<provider> login", args: [], summary: "Guardar sesión (Royal Films, Cine Colombia). Cinemark entra por compra" },
-      { group: "Sesión", command: "<provider> status", args: [], summary: "¿Hay sesión activa y de quién?" },
-      { group: "Comprar", command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
-      { group: "Comprar", command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vacío si la función tiene tarifa única)" },
-      { group: "Comprar", command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
-      { group: "Comprar", command: "<provider> buy", args: [], summary: "Asistente de compra completo de una cadena (interactivo)" },
-      { group: "Comprar", command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
-      { group: "Utilidad", command: "doctor", args: [], summary: "Qué está instalado / logueado y cómo arreglar cada hueco" },
-      { group: "Utilidad", command: "skills", args: [], summary: "Manual para agentes servido por el binario" },
-      { group: "Utilidad", command: "schema", args: ["[--json]"], summary: "Esta superficie (alias: --help, -h, help)" },
-    ],
+    commands: SCHEMA_COMMANDS,
     exitCodes: { "0": "ok", "1": "api/network", "2": "usage" },
   };
   if (json) emitJson({ ok: true, command: "schema", data: spec });
   else {
     logo();
     heading(`cinesco schema v${spec.schemaVersion}`);
-    for (const group of ["Explorar", "Sesión", "Comprar", "Utilidad"]) {
-      const rows = spec.commands.filter((c) => c.group === group);
-      if (!rows.length) continue;
-      process.stderr.write(style.bold(style.cyan(`\n  ${group}\n`)));
-      table(rows, [
-        { key: "command", label: "Comando", color: style.cyan },
-        { key: "summary", label: "Descripción", max: 58 },
-      ]);
-    }
+    renderCommandGroups(SCHEMA_COMMANDS);
     note(style.dim("\ntip: 'cinesco <cadena> login' guarda tu sesión; luego seats/order la reusan solos."));
   }
+}
+
+// Per-chain help: `cinesco <chain> --help` / `<chain>` / `<chain> help`.
+// Same surface as the global schema, scoped to one chain (id substituted,
+// session verbs dropped for chains without a saved session).
+function providerHelp(p: Provider, json: boolean): number {
+  const hasSession = p.id === "royalfilms" || p.id === "cinecolombia";
+  const cmds = SCHEMA_COMMANDS
+    .filter((c) => c.command.startsWith("<provider>") || c.command === "search" || c.command === "start")
+    .filter((c) => hasSession || !/ (login|status)$/.test(c.command))
+    .map((c) => ({ ...c, command: c.command.replace("<provider>", p.id) }));
+  if (json) {
+    emitJson({ ok: true, command: `${p.id} help`, data: { id: p.id, name: p.name, auth: p.auth, notes: p.notes, capabilities: p.capabilities, commands: cmds } });
+    return 0;
+  }
+  logo();
+  heading(`${p.name}  ·  ${p.auth === "browser-assisted" ? "login por navegador" : "login directo"}`);
+  if (p.notes) note(p.notes);
+  renderCommandGroups(cmds);
+  const first = hasSession ? `cinesco ${p.id} login` : `cinesco ${p.id} regions`;
+  note(style.dim(`\nej: ${first}  →  ${p.id} showtimes <movieId> <region>  →  ${p.id} order …`));
+  return 0;
 }
 
 // A browse operation shared by the provider subcommands.
@@ -649,7 +680,7 @@ async function main(): Promise<number> {
   }
   // --help / -h / help → the documented surface (schema), the thing agents and
   // humans reflexively reach for. Bare invoke keeps its friendly overview below.
-  if (flags.help || positionals[0] === "help" || positionals[0] === "-h") {
+  if ((flags.help || positionals[0] === "help" || positionals[0] === "-h") && !getProvider(positionals[0])) {
     schemaCmd(json);
     return 0;
   }
@@ -697,6 +728,9 @@ async function main(): Promise<number> {
     return 2;
   }
   const verb = positionals[1];
+
+  // Per-chain help: `cinesco <chain>` (no verb), `<chain> --help`, `<chain> help`.
+  if (flags.help || !verb || verb === "help") return providerHelp(p, json);
 
   // Agent-ready purchase verbs (uniform, --json): seats · fares · order
   if (verb === "seats" || verb === "fares" || verb === "order") {
