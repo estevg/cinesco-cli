@@ -1,5 +1,3 @@
-# cinesco
-
 <div align="center">
 <pre>
  ▄▄█████▄   ███   ███▄   ███  ▄████████   ▄█████▄    ▄█████▄▄    ▄█████▄  
@@ -115,6 +113,7 @@ cinesco skills                        # or read the manual straight from the bin
 ██  ██▄ ▀████▀    ██   ██▀▀▀██ ▀█████     ██    ██  █████  █  █▀ █  ▀████▀
 </pre>
 </div>
+<div align="center"><b>Royal Films</b></div>
 
 <div align="center">
 <pre>
@@ -123,6 +122,7 @@ cinesco skills                        # or read the manual straight from the bin
 ▀█▄██  █▀ ██ ▀█  ██▄▄▄    ██▄█▀ ▀█▄██  ████ ▀█▄██  █ ██ █  ██▄█▀ ██ ██▀▀██
 </pre>
 </div>
+<div align="center"><b>Cine Colombia</b></div>
 
 <div align="center">
 <pre>
@@ -133,6 +133,7 @@ cinesco skills                        # or read the manual straight from the bin
  ▀█████▀  ███  ██   ███  ███████  ██ ▀██ ██  ██▀   ██▄ ███  ███  ███  ▀██▄
 </pre>
 </div>
+<div align="center"><b>Cinemark</b></div>
 
 | Chain | Browse | Login | Browser | Payment |
 |---|---|---|---|---|
