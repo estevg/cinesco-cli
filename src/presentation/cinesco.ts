@@ -184,23 +184,25 @@ function schemaCmd(json: boolean): void {
     version: VERSION,
     schemaVersion: 1,
     providers: PROVIDERS.map((p) => ({ id: p.id, name: p.name, auth: p.auth, capabilities: p.capabilities })),
+    // `group` sections the human help; the JSON stays a flat list (agents read
+    // `commands`), with `group` as extra metadata. Order = display order.
     commands: [
-      { command: "providers", args: [], summary: "Listar las cadenas" },
-      { command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empezá por acá)" },
-      { command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena (region = ID de 'regions')" },
-      { command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
-      { command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]"], summary: "Funciones. Cada fila trae session/cinema/hall/movie para los comandos de abajo" },
-      { command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
-      { command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vacío si la función tiene tarifa única)" },
-      { command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
-      { command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas" },
-      { command: "<provider> login", args: [], summary: "Guardar sesión (Royal Films, Cine Colombia). Cinemark entra por compra" },
-      { command: "<provider> status", args: [], summary: "¿Hay sesión activa y de quién?" },
-      { command: "<provider> buy", args: [], summary: "Asistente de compra completo de una cadena (interactivo)" },
-      { command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
-      { command: "doctor", args: [], summary: "Qué está instalado / logueado y cómo arreglar cada hueco" },
-      { command: "skills", args: [], summary: "Manual para agentes servido por el binario" },
-      { command: "schema", args: ["[--json]"], summary: "Esta superficie (alias: --help, -h, help)" },
+      { group: "Explorar", command: "providers", args: [], summary: "Listar las cadenas" },
+      { group: "Explorar", command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empezá por acá)" },
+      { group: "Explorar", command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena (region = ID de 'regions')" },
+      { group: "Explorar", command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
+      { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]"], summary: "Funciones. Cada fila trae session/cinema/hall/movie para los comandos de compra" },
+      { group: "Explorar", command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas a la vez" },
+      { group: "Sesión", command: "<provider> login", args: [], summary: "Guardar sesión (Royal Films, Cine Colombia). Cinemark entra por compra" },
+      { group: "Sesión", command: "<provider> status", args: [], summary: "¿Hay sesión activa y de quién?" },
+      { group: "Comprar", command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
+      { group: "Comprar", command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vacío si la función tiene tarifa única)" },
+      { group: "Comprar", command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
+      { group: "Comprar", command: "<provider> buy", args: [], summary: "Asistente de compra completo de una cadena (interactivo)" },
+      { group: "Comprar", command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
+      { group: "Utilidad", command: "doctor", args: [], summary: "Qué está instalado / logueado y cómo arreglar cada hueco" },
+      { group: "Utilidad", command: "skills", args: [], summary: "Manual para agentes servido por el binario" },
+      { group: "Utilidad", command: "schema", args: ["[--json]"], summary: "Esta superficie (alias: --help, -h, help)" },
     ],
     exitCodes: { "0": "ok", "1": "api/network", "2": "usage" },
   };
@@ -208,10 +210,15 @@ function schemaCmd(json: boolean): void {
   else {
     logo();
     heading(`cinesco schema v${spec.schemaVersion}`);
-    table(spec.commands, [
-      { key: "command", label: "Comando", color: style.cyan },
-      { key: "summary", label: "Descripción", max: 44 },
-    ]);
+    for (const group of ["Explorar", "Sesión", "Comprar", "Utilidad"]) {
+      const rows = spec.commands.filter((c) => c.group === group);
+      if (!rows.length) continue;
+      process.stderr.write(style.bold(style.cyan(`\n  ${group}\n`)));
+      table(rows, [
+        { key: "command", label: "Comando", color: style.cyan },
+        { key: "summary", label: "Descripción", max: 58 },
+      ]);
+    }
     note(style.dim("\ntip: 'cinesco <cadena> login' guarda tu sesión; luego seats/order la reusan solos."));
   }
 }
