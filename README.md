@@ -93,6 +93,7 @@ cinesco skills                        # or read the manual straight from the bin
 
 ```bash
 cinesco --help | schema                                         # documented surface (--help, -h, help all alias to schema)
+cinesco <chain> --help                                          # per-chain help, scoped to that chain (also `cinesco <chain>`)
 cinesco doctor | providers | skills | start
 cinesco search "<movie>" --city <city>                          # cross-chain movie search
 
@@ -101,15 +102,25 @@ cinesco <chain> cinemas [region] | movies <region>
 cinesco <chain> showtimes <movieId> <region> [--date hoy|mañana|<weekday>|YYYY-MM-DD]
 # every row of `showtimes` carries the cinema/hall/session/movie ids the purchase commands need
 
+# sessions
+cinesco <chain> login | status                                  # save/inspect a session (Royal Films, Cine Colombia)
+
 # agent-ready purchase (--json; log in once with `cinesco <chain> login`, or set <CHAIN>_EMAIL / <CHAIN>_PASSWORD):
 cinesco <chain> seats  --cinema <id> --session <id> [--hall <id>]           # free seats + per-seat price (--hall: Royal Films)
 cinesco <chain> fares  --cinema <id> --session <id> [--hall <id>]           # ticket types + price
 cinesco <chain> order  --cinema <id> --session <id> --seats F6 --movie <id> --region <city> [--hall <id>] [--bank 1007]
+cinesco <chain> order  ... --dry-run                                        # price the seats without reserving (no hold, no link)
+
+# manage
+cinesco royalfilms pending                                      # in-process sales (Royal Films)
+cinesco royalfilms cancel <reservaId>                           # release a stuck seat hold
+cinesco cinecolombia cancel <orderId>                           # cancel an order (Cine Colombia)
 # chain = royalfilms | cinecolombia | cinemark
 ```
 
 `cinesco doctor` lists what's installed/logged-in and the command that fixes each gap.
-Run `cinesco skills` for the agent manual served by the binary itself.
+Run `cinesco skills` for the agent manual served by the binary itself. Each chain's
+`--help` prints its own banner and only the commands that chain supports.
 
 ## Privacy & security
 
