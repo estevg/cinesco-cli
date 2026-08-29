@@ -43,10 +43,11 @@ import { paintSeatMap } from "./seatmap.ts";
 import { doctorCmd } from "./doctor.ts";
 import { skillsCmd } from "./skills.ts";
 import { bigText } from "./bigtext.ts";
-import { W as BANNER_W, PALETTE as BANNER_PALETTE, ROWS as BANNER_ROWS } from "./banner-data.ts";
+import { BANNERS, type Banner } from "./banners.ts";
 import { login as rfLogin, requireToken as rfRequireToken } from "../infrastructure/royalfilms/auth.ts";
 import { loadSession as rfLoadSession, isExpired as rfIsExpired, decodeJwt as rfDecodeJwt } from "../infrastructure/royalfilms/session.ts";
 import { apiGet as rfApiGet } from "../infrastructure/royalfilms/api.ts";
+import { releaseReserve as rfReleaseReserve } from "../infrastructure/royalfilms/reserve.ts";
 
 type Row = Record<string, unknown>;
 
@@ -111,30 +112,32 @@ function parseArgs(argv: string[]) {
 // True-colour tricolor "CINESCO" wordmark rendered with upper-half-block ▀
 // (foreground = top pixel, background = bottom pixel → 2x vertical resolution).
 // STDERR only, so it never contaminates JSON/piped stdout.
-function bannerTrueColor(): void {
-  const fg = (i: number) => { const c = BANNER_PALETTE[i - 1]; return `\x1b[38;2;${c[0]};${c[1]};${c[2]}m`; };
-  const bg = (i: number) => { const c = BANNER_PALETTE[i - 1]; return `\x1b[48;2;${c[0]};${c[1]};${c[2]}m`; };
+function paintBanner(b: Banner): void {
+  const fg = (i: number) => { const c = b.palette[i - 1]; return `\x1b[38;2;${c[0]};${c[1]};${c[2]}m`; };
+  const bg = (i: number) => { const c = b.palette[i - 1]; return `\x1b[48;2;${c[0]};${c[1]};${c[2]}m`; };
   const RS = "\x1b[0m";
   let out = "\n";
-  for (let y = 0; y < BANNER_ROWS.length; y += 2) {
-    const top = BANNER_ROWS[y], bot = BANNER_ROWS[y + 1] ?? "";
-    for (let x = 0; x < BANNER_W; x++) {
-      const t = +(top[x] ?? "0"), b = +(bot[x] ?? "0");
-      if (!t && !b) out += " ";
-      else if (t && b) out += fg(t) + bg(b) + "▀" + RS;
+  for (let y = 0; y < b.rows.length; y += 2) {
+    const top = b.rows[y], bot = b.rows[y + 1] ?? "";
+    for (let x = 0; x < b.w; x++) {
+      const t = +(top[x] ?? "0"), bb = +(bot[x] ?? "0");
+      if (!t && !bb) out += " ";
+      else if (t && bb) out += fg(t) + bg(bb) + "▀" + RS;
       else if (t) out += fg(t) + "▀" + RS;
-      else out += fg(b) + "▄" + RS;
+      else out += fg(bb) + "▄" + RS;
     }
     out += "\n";
   }
   process.stderr.write(out);
 }
 
-function logo(): void {
+// `bannerId` picks the wordmark (a chain id or "cinesco"); falls back to the
+// cinesco block-letter art on non-true-colour / NO_COLOR terminals.
+function logo(bannerId = "cinesco"): void {
   if (!process.stdout.isTTY) return;
   const truecolor = !process.env.NO_COLOR && /truecolor|24bit/i.test(process.env.COLORTERM ?? "");
-  if (truecolor) {
-    bannerTrueColor();
+  if (truecolor && BANNERS[bannerId]) {
+    paintBanner(BANNERS[bannerId]);
     process.stderr.write(style.dim(`   v${VERSION} · una terminal, todas las salas de cine\n`));
     return;
   }
@@ -179,7 +182,7 @@ function providersCmd(json: boolean): void {
 }
 
 // Section order for the human help, shared by the global schema and per-chain help.
-const SCHEMA_SECTIONS = ["Explorar", "Sesión", "Comprar", "Utilidad"];
+const SCHEMA_SECTIONS = ["Explorar", "Sesión", "Comprar", "Gestión", "Utilidad"];
 type CommandRow = { group: string; command: string; args: string[]; summary: string };
 
 const SCHEMA_COMMANDS: CommandRow[] = [
@@ -193,9 +196,11 @@ const SCHEMA_COMMANDS: CommandRow[] = [
   { group: "Sesión", command: "<provider> status", args: [], summary: "¿Hay sesión activa y de quién?" },
   { group: "Comprar", command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
   { group: "Comprar", command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vacío si la función tiene tarifa única)" },
-  { group: "Comprar", command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
+  { group: "Comprar", command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]", "[--dry-run]"], summary: "Reservar + link de pago (no cobra). --dry-run previsualiza sin reservar" },
   { group: "Comprar", command: "<provider> buy", args: [], summary: "Asistente de compra completo de una cadena (interactivo)" },
   { group: "Comprar", command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
+  { group: "Gestión", command: "<provider> pending", args: [], summary: "Ventas en proceso (Royal Films)" },
+  { group: "Gestión", command: "<provider> cancel", args: ["<id>"], summary: "Liberar un hold (Royal Films) o cancelar una orden (Cine Colombia)" },
   { group: "Utilidad", command: "doctor", args: [], summary: "Qué está instalado / logueado y cómo arreglar cada hueco" },
   { group: "Utilidad", command: "skills", args: [], summary: "Manual para agentes servido por el binario" },
   { group: "Utilidad", command: "schema", args: ["[--json]"], summary: "Esta superficie (alias: --help, -h, help)" },
@@ -240,12 +245,14 @@ function providerHelp(p: Provider, json: boolean): number {
   const cmds = SCHEMA_COMMANDS
     .filter((c) => c.command.startsWith("<provider>") || c.command === "search" || c.command === "start")
     .filter((c) => hasSession || !/ (login|status)$/.test(c.command))
+    .filter((c) => p.id === "royalfilms" || !/ pending$/.test(c.command))
+    .filter((c) => p.id === "royalfilms" || p.id === "cinecolombia" || !/ cancel$/.test(c.command))
     .map((c) => ({ ...c, command: c.command.replace("<provider>", p.id) }));
   if (json) {
     emitJson({ ok: true, command: `${p.id} help`, data: { id: p.id, name: p.name, auth: p.auth, notes: p.notes, capabilities: p.capabilities, commands: cmds } });
     return 0;
   }
-  logo();
+  logo(p.id);
   heading(`${p.name}  ·  ${p.auth === "browser-assisted" ? "login por navegador" : "login directo"}`);
   if (p.notes) note(p.notes);
   renderCommandGroups(cmds);
@@ -255,17 +262,33 @@ function providerHelp(p: Provider, json: boolean): number {
 }
 
 // A browse operation shared by the provider subcommands.
+// Reject an invalid region up front instead of returning an empty list (which
+// looked identical to a real but empty city). Suggests the right id by name.
+async function assertRegion(p: Provider, region: string | undefined): Promise<void> {
+  if (!region || !p.catalog.listRegions) return;
+  const regions = await p.catalog.listRegions();
+  if (regions.some((r) => r.id === region)) return;
+  const q = region.toLowerCase();
+  const near = regions.filter((r) => r.name.toLowerCase().includes(q) || r.id.toLowerCase() === q);
+  const hint = near.length
+    ? `¿quisiste decir ${near.slice(0, 3).map((r) => `${r.id} (${r.name})`).join(" · ")}?`
+    : `corré 'cinesco ${p.id} regions' para ver los IDs`;
+  throw new UsageError(`region "${region}" no existe en ${p.name}. ${hint}`);
+}
+
 async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: Record<string, string>, json: boolean): Promise<number> {
   const region = pos[0] || flags.region;
   const cmd = `${p.id} ${verb}`;
   try {
     if (verb === "cinemas") {
+      await assertRegion(p, region);
       const data = await p.catalog.listCinemas(region);
       out(json, cmd, data, ["<provider> movies [region]"], () => {
         heading(`${p.name} · cines${region ? ` (region ${region})` : ""}`);
         table(data, [{ key: "id", label: "ID", color: style.cyan }, { key: "name", label: "Cine" }]);
       });
     } else if (verb === "movies") {
+      await assertRegion(p, region);
       const data = await p.catalog.listMovies(region);
       out(json, cmd, data, [`${p.id} showtimes <movieId> ${region ?? "[region]"}`], () => {
         heading(`${p.name} · cartelera`);
@@ -275,6 +298,7 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
       const movieId = pos[0];
       if (!movieId) throw new UsageError("falta movieId");
       const reg = pos[1] || flags.region;
+      await assertRegion(p, reg);
       let data = await p.catalog.listShowtimes({ movieId, regionId: reg, cinemaId: flags.cinema });
       if (flags.date) {
         const d = resolveDate(flags.date);
@@ -594,6 +618,17 @@ async function runPortVerb(p: Provider, verb: string, flags: Record<string, stri
       if (problems.length) return fail("seat-error", problems.join("; "));
       const perSeatPriced = map.rows.some((r) => r.seats.some((x) => x.priceCents != null));
       const fare = perSeatPriced ? undefined : defaultFare(await purchase.fares(showtime, session));
+      // --dry-run: price the chosen seats without reserving (no hold, no sale, no link).
+      if (flags["dry-run"] !== undefined) {
+        const totalCents = perSeatPriced ? seats.reduce((s, x) => s + (x.priceCents ?? 0), 0) : (fare?.priceCents ?? 0) * seats.length;
+        const total = Math.round(totalCents / 100);
+        out(json, cmd, [{ seats: seats.map((s) => s.label), total, fare: fare?.name ?? "por butaca", willReserve: false, willCharge: false }],
+          [`para reservar de verdad, repetí el comando sin --dry-run`], () => {
+            heading("Previsualización · no reserva, no cobra");
+            note(`${seats.map((s) => s.label).join(", ")} · total $${total.toLocaleString("es-CO")}`);
+          });
+        return 0;
+      }
       const methods = purchase.paymentMethods();
       const method = flags.bank ? methods.find((m) => m.code === flags.bank) : methods[0];
       let title = flags.title ?? "";
@@ -732,17 +767,53 @@ async function main(): Promise<number> {
   // Per-chain help: `cinesco <chain>` (no verb), `<chain> --help`, `<chain> help`.
   if (flags.help || !verb || verb === "help") return providerHelp(p, json);
 
+  // pending/cancel are chain-specific: Royal Films (pending + release a hold),
+  // Cine Colombia (cancel <orderId>). Anything else is unsupported — say so
+  // clearly instead of falling through to "verbo desconocido".
+  if ((verb === "pending" || verb === "cancel") && p.id !== "royalfilms" && !(p.id === "cinecolombia" && verb === "cancel")) {
+    const msg = `${p.name}: '${verb}' no está disponible (Royal Films: pending + cancel <reservaId>; Cine Colombia: cancel <orderId>).`;
+    if (json) emitJson({ ok: false, command: `${p.id} ${verb}`, error: { code: "unsupported", message: msg } });
+    else errline(msg);
+    return 2;
+  }
+
   // Agent-ready purchase verbs (uniform, --json): seats · fares · order
   if (verb === "seats" || verb === "fares" || verb === "order") {
     return runPortVerb(p, verb, flags, json);
   }
 
   // Royal Films: poll for a payment (a new sale appearing). Headless — no browser.
-  if (p.id === "royalfilms" && (verb === "payment-wait" || verb === "sales")) {
+  if (p.id === "royalfilms" && (verb === "payment-wait" || verb === "sales" || verb === "pending" || verb === "cancel")) {
     try {
       const { token } = rfRequireToken();
       const doc = rfDocFromToken(token);
       if (!doc) throw new Error("no encontré tu documento en la sesión");
+      if (verb === "cancel") {
+        // Release a seat hold by its reserva id (frees stuck seats). DELETE /reserve/ticket-office/{id}.
+        const id = positionals[2] || flags.id;
+        if (!id) throw new UsageError("falta el id de reserva: cinesco royalfilms cancel <reservaId>");
+        await rfReleaseReserve(Number(id), token);
+        if (json) emitJson({ ok: true, command: "royalfilms cancel", data: { released: Number(id) } });
+        else note(`✓ hold ${id} liberado.`);
+        return 0;
+      }
+      if (verb === "pending") {
+        // venta_estado 3 = confirmada/pagada; anything else is in-process. RF only
+        // surfaces sales that produced a ticket, so this can be empty even when a
+        // pending sale is blocking a purchase (that one clears on expiry, ~10 min).
+        const d = await rfApiGet<{ redeemed?: Row[]; unredeemed?: Row[] }>(`/ticket/document/${doc}`, token);
+        const all = [...(d.unredeemed ?? []), ...(d.redeemed ?? [])];
+        const pend = all.filter((s) => Number(s.venta_estado) !== 3);
+        if (json) emitJson({ ok: true, command: "royalfilms pending", count: pend.length, data: pend, nextSteps: pend.map((s) => `royalfilms cancel ${s.venta_id}`) });
+        else if (!pend.length) note("no hay ventas en proceso listables. (una venta pendiente que bloquea la compra puede no aparecer acá; se limpia sola al expirar ~10 min)");
+        else {
+          heading("Royal Films · ventas en proceso");
+          table(pend.map((s) => ({ id: s.venta_id, estado: s.venta_estado, fecha: String(s.venta_fecha).slice(0, 10), total: "$" + Number(s.venta_total).toLocaleString("es-CO") })), [
+            { key: "id", label: "Venta", color: style.cyan }, { key: "estado", label: "Estado" }, { key: "fecha", label: "Fecha" }, { key: "total", label: "Total" },
+          ]);
+        }
+        return 0;
+      }
       if (verb === "sales") {
         const d = await rfApiGet<{ redeemed?: Row[]; unredeemed?: Row[] }>(`/ticket/document/${doc}`, token);
         const all = [...(d.unredeemed ?? []), ...(d.redeemed ?? [])];

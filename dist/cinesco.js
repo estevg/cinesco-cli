@@ -2995,21 +2995,13 @@ function bigText(text) {
 `);
 }
 
-// src/presentation/banner-data.ts
-var W = 68;
-var PALETTE = [[252, 209, 22], [0, 56, 147], [206, 17, 38]];
-var ROWS = [
-  "00111110000222000330000333001111111100022222000000333330000011111100",
-  "01111111000222003333000333001111111100222222200003333333000111111110",
-  "11110011100222003333300333001110000000222002200033300333000111001110",
-  "11100000000222003333300333001110000000222220000033300000001110000111",
-  "11100000000222003333330333001111111100222222200333000000001110000111",
-  "11100000000222003330333333001111111000000222220333000000001110000111",
-  "11100011100222003330033333001110000000000002220033300033001110000111",
-  "11110011100222003330033333001110000002222002220033300333000111001110",
-  "01111111000222003330003333001111111100222222200003333333000111111110",
-  "00111110000222000330000333001111111100022222000000333330000011111100"
-];
+// src/presentation/banners.ts
+var BANNERS = {
+  cinesco: { w: 74, palette: [[252, 209, 22], [0, 56, 147], [206, 17, 38]], rows: ["00011111000011100011100001110001111111100001111100000011111000000011111000", "01111111100011100011110001110011111111100011111110000111111110000111111100", "01111111110011100011110001110011111111100111001111001111111110001111111110", "11110001110011100011111001110011110000000111000000001110001110001110001111", "22200000000022200022222002220022222222000222222000002220000000022220000222", "22200000000022200022222202220022222222200022222220002220000000022200000222", "22200000000022200022202222220022222222000000222222002220000000022200000222", "22200002200022200022202222220022220000000000002222002220000200022220000222", "33330003330033300033300333330033330000000333000333003330003333003330003333", "03333333330033300033300333330033333333300333333333003333333330003333333330", "00333333300033300033300033330033333333300033333330000333333330000333333300", "00033333000033300033300003330003333333300003333300000033333000000033333000"] },
+  royalfilms: { w: 74, palette: [[227, 6, 19]], rows: ["11111000011110001100110000110000100000000011111011001100000111001100011110", "11111100111111001100110001110001110000000011111011001100000111011100111111", "11001100110011000111100001111001110000000011000011001100000111011100110000", "11111100110011100111100011011001110000000011110011001100000111011100111110", "11111000110011100011000011011001110000000011110011001100000111110100001111", "11011100110011000011000011111101110000000011000011001100000101110100110011", "11001100111111000011000111111101111110000011000011001111100100110100111111", "11001110011110000011000110001100111110000011000011001111100100100100011110"] },
+  cinecolombia: { w: 74, palette: [[232, 74, 42]], rows: ["01111001001100100111110000111100011110010000011110011001100111100110001100", "11011001101100100110000000110110110110011000110110011101100111110110011100", "11000001101110100111100001100000100011011000110011011111100111100110010110", "11000001101111100110000001100000100011010000110011011111100110110110011110", "11011001101101100110000000110110110110011110110110010110100110110110111111", "01111001001100100111110000111100011110011110011110010110100111100110110011"] },
+  cinemark: { w: 74, palette: [[20, 74, 160]], rows: ["00111110001110011000011001111111001110001110000011100001111111000111001110", "01111111001110011100111001111111001111001110000111100001111111100111011110", "11110111001110011110111001110000001111011110000111100001110011100111011100", "11100000001110011110111001110000001111011110000111110001110011100111111000", "11100000001110011111111001111111001111011110001110110001111111100111111000", "11100000001110011011111001111111001101111110001100110001111111000111111100", "11100011001110011001111001110000001101110110001111111001110111000111011100", "11100111001110011001111001110000001101110110011111111001110111000111001110", "01111111001110011000111001111111001101110110011100011001110011100111001110", "00111110001110011000111001111111001100110110011000011101110011100111000111"] }
+};
 
 // src/infrastructure/royalfilms/auth.ts
 async function login2(email, password) {
@@ -3109,6 +3101,11 @@ function handle2(text, res, path) {
   return body.data ?? [];
 }
 
+// src/infrastructure/royalfilms/reserve.ts
+function releaseReserve2(reservaId, token) {
+  return apiDelete(`/reserve/ticket-office/${reservaId}`, token);
+}
+
 // src/presentation/cinesco.ts
 async function ccWaitPayment(orderId, log2) {
   const deadline = Date.now() + 10 * 60 * 1000;
@@ -3184,42 +3181,42 @@ function parseArgs(argv) {
   }
   return { positionals, flags, json };
 }
-function bannerTrueColor() {
+function paintBanner(b) {
   const fg = (i) => {
-    const c = PALETTE[i - 1];
+    const c = b.palette[i - 1];
     return `\x1B[38;2;${c[0]};${c[1]};${c[2]}m`;
   };
   const bg = (i) => {
-    const c = PALETTE[i - 1];
+    const c = b.palette[i - 1];
     return `\x1B[48;2;${c[0]};${c[1]};${c[2]}m`;
   };
   const RS = "\x1B[0m";
   let out = `
 `;
-  for (let y = 0;y < ROWS.length; y += 2) {
-    const top = ROWS[y], bot = ROWS[y + 1] ?? "";
-    for (let x = 0;x < W; x++) {
-      const t = +(top[x] ?? "0"), b = +(bot[x] ?? "0");
-      if (!t && !b)
+  for (let y = 0;y < b.rows.length; y += 2) {
+    const top = b.rows[y], bot = b.rows[y + 1] ?? "";
+    for (let x = 0;x < b.w; x++) {
+      const t = +(top[x] ?? "0"), bb = +(bot[x] ?? "0");
+      if (!t && !bb)
         out += " ";
-      else if (t && b)
-        out += fg(t) + bg(b) + "\u2580" + RS;
+      else if (t && bb)
+        out += fg(t) + bg(bb) + "\u2580" + RS;
       else if (t)
         out += fg(t) + "\u2580" + RS;
       else
-        out += fg(b) + "\u2584" + RS;
+        out += fg(bb) + "\u2584" + RS;
     }
     out += `
 `;
   }
   process.stderr.write(out);
 }
-function logo2() {
+function logo2(bannerId = "cinesco") {
   if (!process.stdout.isTTY)
     return;
   const truecolor = !process.env.NO_COLOR && /truecolor|24bit/i.test(process.env.COLORTERM ?? "");
-  if (truecolor) {
-    bannerTrueColor();
+  if (truecolor && BANNERS[bannerId]) {
+    paintBanner(BANNERS[bannerId]);
     process.stderr.write(style2.dim(`   v${VERSION} \xB7 una terminal, todas las salas de cine
 `));
     return;
@@ -3263,7 +3260,7 @@ function providersCmd(json) {
     ]);
   }
 }
-var SCHEMA_SECTIONS = ["Explorar", "Sesi\xF3n", "Comprar", "Utilidad"];
+var SCHEMA_SECTIONS = ["Explorar", "Sesi\xF3n", "Comprar", "Gesti\xF3n", "Utilidad"];
 var SCHEMA_COMMANDS = [
   { group: "Explorar", command: "providers", args: [], summary: "Listar las cadenas" },
   { group: "Explorar", command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empez\xE1 por ac\xE1)" },
@@ -3275,9 +3272,11 @@ var SCHEMA_COMMANDS = [
   { group: "Sesi\xF3n", command: "<provider> status", args: [], summary: "\xBFHay sesi\xF3n activa y de qui\xE9n?" },
   { group: "Comprar", command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
   { group: "Comprar", command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vac\xEDo si la funci\xF3n tiene tarifa \xFAnica)" },
-  { group: "Comprar", command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
+  { group: "Comprar", command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]", "[--dry-run]"], summary: "Reservar + link de pago (no cobra). --dry-run previsualiza sin reservar" },
   { group: "Comprar", command: "<provider> buy", args: [], summary: "Asistente de compra completo de una cadena (interactivo)" },
   { group: "Comprar", command: "start", args: [], summary: "Asistente: eleg\xED cadena y explor\xE1 (interactivo)" },
+  { group: "Gesti\xF3n", command: "<provider> pending", args: [], summary: "Ventas en proceso (Royal Films)" },
+  { group: "Gesti\xF3n", command: "<provider> cancel", args: ["<id>"], summary: "Liberar un hold (Royal Films) o cancelar una orden (Cine Colombia)" },
   { group: "Utilidad", command: "doctor", args: [], summary: "Qu\xE9 est\xE1 instalado / logueado y c\xF3mo arreglar cada hueco" },
   { group: "Utilidad", command: "skills", args: [], summary: "Manual para agentes servido por el binario" },
   { group: "Utilidad", command: "schema", args: ["[--json]"], summary: "Esta superficie (alias: --help, -h, help)" }
@@ -3317,12 +3316,12 @@ tip: 'cinesco <cadena> login' guarda tu sesi\xF3n; luego seats/order la reusan s
 }
 function providerHelp(p, json) {
   const hasSession = p.id === "royalfilms" || p.id === "cinecolombia";
-  const cmds = SCHEMA_COMMANDS.filter((c) => c.command.startsWith("<provider>") || c.command === "search" || c.command === "start").filter((c) => hasSession || !/ (login|status)$/.test(c.command)).map((c) => ({ ...c, command: c.command.replace("<provider>", p.id) }));
+  const cmds = SCHEMA_COMMANDS.filter((c) => c.command.startsWith("<provider>") || c.command === "search" || c.command === "start").filter((c) => hasSession || !/ (login|status)$/.test(c.command)).filter((c) => p.id === "royalfilms" || !/ pending$/.test(c.command)).filter((c) => p.id === "royalfilms" || p.id === "cinecolombia" || !/ cancel$/.test(c.command)).map((c) => ({ ...c, command: c.command.replace("<provider>", p.id) }));
   if (json) {
     emitJson2({ ok: true, command: `${p.id} help`, data: { id: p.id, name: p.name, auth: p.auth, notes: p.notes, capabilities: p.capabilities, commands: cmds } });
     return 0;
   }
-  logo2();
+  logo2(p.id);
   heading2(`${p.name}  \xB7  ${p.auth === "browser-assisted" ? "login por navegador" : "login directo"}`);
   if (p.notes)
     note2(p.notes);
@@ -3332,17 +3331,30 @@ function providerHelp(p, json) {
 ej: ${first}  \u2192  ${p.id} showtimes <movieId> <region>  \u2192  ${p.id} order \u2026`));
   return 0;
 }
+async function assertRegion(p, region) {
+  if (!region || !p.catalog.listRegions)
+    return;
+  const regions = await p.catalog.listRegions();
+  if (regions.some((r) => r.id === region))
+    return;
+  const q = region.toLowerCase();
+  const near = regions.filter((r) => r.name.toLowerCase().includes(q) || r.id.toLowerCase() === q);
+  const hint = near.length ? `\xBFquisiste decir ${near.slice(0, 3).map((r) => `${r.id} (${r.name})`).join(" \xB7 ")}?` : `corr\xE9 'cinesco ${p.id} regions' para ver los IDs`;
+  throw new UsageError2(`region "${region}" no existe en ${p.name}. ${hint}`);
+}
 async function runProviderVerb(p, verb, pos, flags, json) {
   const region = pos[0] || flags.region;
   const cmd = `${p.id} ${verb}`;
   try {
     if (verb === "cinemas") {
+      await assertRegion(p, region);
       const data = await p.catalog.listCinemas(region);
       out(json, cmd, data, ["<provider> movies [region]"], () => {
         heading2(`${p.name} \xB7 cines${region ? ` (region ${region})` : ""}`);
         table2(data, [{ key: "id", label: "ID", color: style2.cyan }, { key: "name", label: "Cine" }]);
       });
     } else if (verb === "movies") {
+      await assertRegion(p, region);
       const data = await p.catalog.listMovies(region);
       out(json, cmd, data, [`${p.id} showtimes <movieId> ${region ?? "[region]"}`], () => {
         heading2(`${p.name} \xB7 cartelera`);
@@ -3353,6 +3365,7 @@ async function runProviderVerb(p, verb, pos, flags, json) {
       if (!movieId)
         throw new UsageError2("falta movieId");
       const reg = pos[1] || flags.region;
+      await assertRegion(p, reg);
       let data = await p.catalog.listShowtimes({ movieId, regionId: reg, cinemaId: flags.cinema });
       if (flags.date) {
         const d = resolveDate(flags.date);
@@ -3656,6 +3669,15 @@ async function runPortVerb(p, verb, flags, json) {
         return fail("seat-error", problems.join("; "));
       const perSeatPriced = map.rows.some((r) => r.seats.some((x) => x.priceCents != null));
       const fare = perSeatPriced ? undefined : defaultFare(await purchase.fares(showtime, session));
+      if (flags["dry-run"] !== undefined) {
+        const totalCents = perSeatPriced ? seats.reduce((s, x) => s + (x.priceCents ?? 0), 0) : (fare?.priceCents ?? 0) * seats.length;
+        const total = Math.round(totalCents / 100);
+        out(json, cmd, [{ seats: seats.map((s) => s.label), total, fare: fare?.name ?? "por butaca", willReserve: false, willCharge: false }], [`para reservar de verdad, repet\xED el comando sin --dry-run`], () => {
+          heading2("Previsualizaci\xF3n \xB7 no reserva, no cobra");
+          note2(`${seats.map((s) => s.label).join(", ")} \xB7 total $${total.toLocaleString("es-CO")}`);
+        });
+        return 0;
+      }
       const methods = purchase.paymentMethods();
       const method = flags.bank ? methods.find((m) => m.code === flags.bank) : methods[0];
       let title = flags.title ?? "";
@@ -3797,15 +3819,53 @@ tip: 'cinesco start' hace todo el flujo guiado (eleg\xED cadena y segu\xED).`));
   const verb = positionals[1];
   if (flags.help || !verb || verb === "help")
     return providerHelp(p, json);
+  if ((verb === "pending" || verb === "cancel") && p.id !== "royalfilms" && !(p.id === "cinecolombia" && verb === "cancel")) {
+    const msg = `${p.name}: '${verb}' no est\xE1 disponible (Royal Films: pending + cancel <reservaId>; Cine Colombia: cancel <orderId>).`;
+    if (json)
+      emitJson2({ ok: false, command: `${p.id} ${verb}`, error: { code: "unsupported", message: msg } });
+    else
+      errline(msg);
+    return 2;
+  }
   if (verb === "seats" || verb === "fares" || verb === "order") {
     return runPortVerb(p, verb, flags, json);
   }
-  if (p.id === "royalfilms" && (verb === "payment-wait" || verb === "sales")) {
+  if (p.id === "royalfilms" && (verb === "payment-wait" || verb === "sales" || verb === "pending" || verb === "cancel")) {
     try {
       const { token } = requireToken2();
       const doc = rfDocFromToken(token);
       if (!doc)
         throw new Error("no encontr\xE9 tu documento en la sesi\xF3n");
+      if (verb === "cancel") {
+        const id = positionals[2] || flags.id;
+        if (!id)
+          throw new UsageError2("falta el id de reserva: cinesco royalfilms cancel <reservaId>");
+        await releaseReserve2(Number(id), token);
+        if (json)
+          emitJson2({ ok: true, command: "royalfilms cancel", data: { released: Number(id) } });
+        else
+          note2(`\u2713 hold ${id} liberado.`);
+        return 0;
+      }
+      if (verb === "pending") {
+        const d = await apiGet2(`/ticket/document/${doc}`, token);
+        const all = [...d.unredeemed ?? [], ...d.redeemed ?? []];
+        const pend = all.filter((s) => Number(s.venta_estado) !== 3);
+        if (json)
+          emitJson2({ ok: true, command: "royalfilms pending", count: pend.length, data: pend, nextSteps: pend.map((s) => `royalfilms cancel ${s.venta_id}`) });
+        else if (!pend.length)
+          note2("no hay ventas en proceso listables. (una venta pendiente que bloquea la compra puede no aparecer ac\xE1; se limpia sola al expirar ~10 min)");
+        else {
+          heading2("Royal Films \xB7 ventas en proceso");
+          table2(pend.map((s) => ({ id: s.venta_id, estado: s.venta_estado, fecha: String(s.venta_fecha).slice(0, 10), total: "$" + Number(s.venta_total).toLocaleString("es-CO") })), [
+            { key: "id", label: "Venta", color: style2.cyan },
+            { key: "estado", label: "Estado" },
+            { key: "fecha", label: "Fecha" },
+            { key: "total", label: "Total" }
+          ]);
+        }
+        return 0;
+      }
       if (verb === "sales") {
         const d = await apiGet2(`/ticket/document/${doc}`, token);
         const all = [...d.unredeemed ?? [], ...d.redeemed ?? []];
