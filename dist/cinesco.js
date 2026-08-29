@@ -3226,18 +3226,27 @@ function schemaCmd(json) {
       { command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vac\xEDo si la funci\xF3n tiene tarifa \xFAnica)" },
       { command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
       { command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas" },
-      { command: "start", args: [], summary: "Asistente: eleg\xED cadena y explor\xE1 (interactivo)" }
+      { command: "<provider> login", args: [], summary: "Guardar sesi\xF3n (Royal Films, Cine Colombia). Cinemark entra por compra" },
+      { command: "<provider> status", args: [], summary: "\xBFHay sesi\xF3n activa y de qui\xE9n?" },
+      { command: "<provider> buy", args: [], summary: "Asistente de compra completo de una cadena (interactivo)" },
+      { command: "start", args: [], summary: "Asistente: eleg\xED cadena y explor\xE1 (interactivo)" },
+      { command: "doctor", args: [], summary: "Qu\xE9 est\xE1 instalado / logueado y c\xF3mo arreglar cada hueco" },
+      { command: "skills", args: [], summary: "Manual para agentes servido por el binario" },
+      { command: "schema", args: ["[--json]"], summary: "Esta superficie (alias: --help, -h, help)" }
     ],
     exitCodes: { "0": "ok", "1": "api/network", "2": "usage" }
   };
   if (json)
     emitJson2({ ok: true, command: "schema", data: spec });
   else {
+    logo2();
     heading2(`cinesco schema v${spec.schemaVersion}`);
     table2(spec.commands, [
       { key: "command", label: "Comando", color: style2.cyan },
-      { key: "summary", label: "Descripci\xF3n", max: 40 }
+      { key: "summary", label: "Descripci\xF3n", max: 44 }
     ]);
+    note2(style2.dim(`
+tip: 'cinesco <cadena> login' guarda tu sesi\xF3n; luego seats/order la reusan solos.`));
   }
 }
 async function runProviderVerb(p, verb, pos, flags, json) {

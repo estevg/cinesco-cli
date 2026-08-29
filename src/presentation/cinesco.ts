@@ -164,17 +164,25 @@ function schemaCmd(json: boolean): void {
       { command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vacío si la función tiene tarifa única)" },
       { command: "<provider> order", args: ["--cinema", "--session", "--hall", "--seats", "--movie", "--region", "[--bank]"], summary: "Reservar + link de pago (no cobra). Los IDs salen de 'showtimes'/'regions'" },
       { command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas" },
+      { command: "<provider> login", args: [], summary: "Guardar sesión (Royal Films, Cine Colombia). Cinemark entra por compra" },
+      { command: "<provider> status", args: [], summary: "¿Hay sesión activa y de quién?" },
+      { command: "<provider> buy", args: [], summary: "Asistente de compra completo de una cadena (interactivo)" },
       { command: "start", args: [], summary: "Asistente: elegí cadena y explorá (interactivo)" },
+      { command: "doctor", args: [], summary: "Qué está instalado / logueado y cómo arreglar cada hueco" },
+      { command: "skills", args: [], summary: "Manual para agentes servido por el binario" },
+      { command: "schema", args: ["[--json]"], summary: "Esta superficie (alias: --help, -h, help)" },
     ],
     exitCodes: { "0": "ok", "1": "api/network", "2": "usage" },
   };
   if (json) emitJson({ ok: true, command: "schema", data: spec });
   else {
+    logo();
     heading(`cinesco schema v${spec.schemaVersion}`);
     table(spec.commands, [
       { key: "command", label: "Comando", color: style.cyan },
-      { key: "summary", label: "Descripción", max: 40 },
+      { key: "summary", label: "Descripción", max: 44 },
     ]);
+    note(style.dim("\ntip: 'cinesco <cadena> login' guarda tu sesión; luego seats/order la reusan solos."));
   }
 }
 
