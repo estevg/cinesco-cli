@@ -2995,6 +2995,22 @@ function bigText(text) {
 `);
 }
 
+// src/presentation/banner-data.ts
+var W = 68;
+var PALETTE = [[252, 209, 22], [0, 56, 147], [206, 17, 38]];
+var ROWS = [
+  "00111110000222000330000333001111111100022222000000333330000011111100",
+  "01111111000222003333000333001111111100222222200003333333000111111110",
+  "11110011100222003333300333001110000000222002200033300333000111001110",
+  "11100000000222003333300333001110000000222220000033300000001110000111",
+  "11100000000222003333330333001111111100222222200333000000001110000111",
+  "11100000000222003330333333001111111000000222220333000000001110000111",
+  "11100011100222003330033333001110000000000002220033300033001110000111",
+  "11110011100222003330033333001110000002222002220033300333000111001110",
+  "01111111000222003330003333001111111100222222200003333333000111111110",
+  "00111110000222000330000333001111111100022222000000333330000011111100"
+];
+
 // src/infrastructure/royalfilms/auth.ts
 async function login2(email, password) {
   const token = await apiPost(`/auth/login`, { email, password });
@@ -3168,9 +3184,46 @@ function parseArgs(argv) {
   }
   return { positionals, flags, json };
 }
+function bannerTrueColor() {
+  const fg = (i) => {
+    const c = PALETTE[i - 1];
+    return `\x1B[38;2;${c[0]};${c[1]};${c[2]}m`;
+  };
+  const bg = (i) => {
+    const c = PALETTE[i - 1];
+    return `\x1B[48;2;${c[0]};${c[1]};${c[2]}m`;
+  };
+  const RS = "\x1B[0m";
+  let out = `
+`;
+  for (let y = 0;y < ROWS.length; y += 2) {
+    const top = ROWS[y], bot = ROWS[y + 1] ?? "";
+    for (let x = 0;x < W; x++) {
+      const t = +(top[x] ?? "0"), b = +(bot[x] ?? "0");
+      if (!t && !b)
+        out += " ";
+      else if (t && b)
+        out += fg(t) + bg(b) + "\u2580" + RS;
+      else if (t)
+        out += fg(t) + "\u2580" + RS;
+      else
+        out += fg(b) + "\u2584" + RS;
+    }
+    out += `
+`;
+  }
+  process.stderr.write(out);
+}
 function logo2() {
   if (!process.stdout.isTTY)
     return;
+  const truecolor = !process.env.NO_COLOR && /truecolor|24bit/i.test(process.env.COLORTERM ?? "");
+  if (truecolor) {
+    bannerTrueColor();
+    process.stderr.write(style2.dim(`   v${VERSION} \xB7 una terminal, todas las salas de cine
+`));
+    return;
+  }
   const strip = style2.dim("\u2590\u258C ".repeat(16).trimEnd());
   process.stderr.write(`
 ` + strip + `
@@ -3185,7 +3238,7 @@ function logo2() {
   ])
     process.stderr.write(style2.bold(style2.cyan(l)) + `
 `);
-  process.stderr.write(style2.dim(`   una terminal, todas las salas de cine
+  process.stderr.write(style2.dim(`   v${VERSION} \xB7 una terminal, todas las salas de cine
 `) + strip + `
 `);
 }

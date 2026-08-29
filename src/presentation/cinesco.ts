@@ -43,6 +43,7 @@ import { paintSeatMap } from "./seatmap.ts";
 import { doctorCmd } from "./doctor.ts";
 import { skillsCmd } from "./skills.ts";
 import { bigText } from "./bigtext.ts";
+import { W as BANNER_W, PALETTE as BANNER_PALETTE, ROWS as BANNER_ROWS } from "./banner-data.ts";
 import { login as rfLogin, requireToken as rfRequireToken } from "../infrastructure/royalfilms/auth.ts";
 import { loadSession as rfLoadSession, isExpired as rfIsExpired, decodeJwt as rfDecodeJwt } from "../infrastructure/royalfilms/session.ts";
 import { apiGet as rfApiGet } from "../infrastructure/royalfilms/api.ts";
@@ -107,8 +108,37 @@ function parseArgs(argv: string[]) {
   return { positionals, flags, json };
 }
 
+// True-colour tricolor "CINESCO" wordmark rendered with upper-half-block ▀
+// (foreground = top pixel, background = bottom pixel → 2x vertical resolution).
+// STDERR only, so it never contaminates JSON/piped stdout.
+function bannerTrueColor(): void {
+  const fg = (i: number) => { const c = BANNER_PALETTE[i - 1]; return `\x1b[38;2;${c[0]};${c[1]};${c[2]}m`; };
+  const bg = (i: number) => { const c = BANNER_PALETTE[i - 1]; return `\x1b[48;2;${c[0]};${c[1]};${c[2]}m`; };
+  const RS = "\x1b[0m";
+  let out = "\n";
+  for (let y = 0; y < BANNER_ROWS.length; y += 2) {
+    const top = BANNER_ROWS[y], bot = BANNER_ROWS[y + 1] ?? "";
+    for (let x = 0; x < BANNER_W; x++) {
+      const t = +(top[x] ?? "0"), b = +(bot[x] ?? "0");
+      if (!t && !b) out += " ";
+      else if (t && b) out += fg(t) + bg(b) + "▀" + RS;
+      else if (t) out += fg(t) + "▀" + RS;
+      else out += fg(b) + "▄" + RS;
+    }
+    out += "\n";
+  }
+  process.stderr.write(out);
+}
+
 function logo(): void {
   if (!process.stdout.isTTY) return;
+  const truecolor = !process.env.NO_COLOR && /truecolor|24bit/i.test(process.env.COLORTERM ?? "");
+  if (truecolor) {
+    bannerTrueColor();
+    process.stderr.write(style.dim(`   v${VERSION} · una terminal, todas las salas de cine\n`));
+    return;
+  }
+  // Fallback for 256-colour / NO_COLOR terminals: block-letter wordmark.
   const strip = style.dim("▐▌ ".repeat(16).trimEnd());
   process.stderr.write("\n" + strip + "\n");
   for (const l of [
@@ -120,7 +150,7 @@ function logo(): void {
     " ╚═════╝╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝     ╚═════╝ ╚═════╝",
   ])
     process.stderr.write(style.bold(style.cyan(l)) + "\n");
-  process.stderr.write(style.dim("   una terminal, todas las salas de cine\n") + strip + "\n");
+  process.stderr.write(style.dim(`   v${VERSION} · una terminal, todas las salas de cine\n`) + strip + "\n");
 }
 
 function providersCmd(json: boolean): void {
