@@ -5,7 +5,7 @@ import { login, requireToken } from "../infrastructure/royalfilms/auth.ts";
 import { loadSession, clearSession, isExpired, sessionFilePath, decodeJwt } from "../infrastructure/royalfilms/session.ts";
 import { promptLine, promptSecret, promptSelect } from "../shared/prompt.ts";
 import { groupByDate, groupByCinema, funcLabel, funcLabelShort, resolveSeats, type FunctionCell } from "../infrastructure/royalfilms/wizard.ts";
-import { paintSeatMap, summarize, seatPrice, type SeatMap, type SeatCell } from "../infrastructure/royalfilms/seatmap.ts";
+import { paintSeatMap, summarize, seatPrice, resolveSeatsOnMap, type SeatMap, type SeatCell } from "../infrastructure/royalfilms/seatmap.ts";
 import { buildReserveBody, reserve, releaseReserve } from "../infrastructure/royalfilms/reserve.ts";
 import { auditPending } from "../infrastructure/royalfilms/audit.ts";
 import { billingFromToken, buildSessionData, getSessionId, buildCheckoutHtml } from "../infrastructure/royalfilms/checkout.ts";
@@ -200,7 +200,7 @@ export async function runBuyWizard(): Promise<RunResult> {
   for (;;) {
     const ans = await promptLine("\nbutacas — podés elegir varias separadas por coma (ej: F17,F16,F15) o 'q': ");
     if (ans === null || ans.toLowerCase() === "q") throw new UsageError("compra cancelada");
-    const r = resolveSeats(ans.split(","), map.mapa_sala);
+    const r = resolveSeatsOnMap(ans.split(","), map);
     if (r.problems.length) {
       note(style.red(r.problems.join("; ")));
       continue;
@@ -468,7 +468,7 @@ export const COMMANDS: Command[] = [
         token,
       );
       const byId = new Map<number, SeatCell>(map.mapa_sala.map((c) => [c.silla_id, c]));
-      const resolved = resolveSeats(String(flags.seats).split(","), map.mapa_sala);
+      const resolved = resolveSeatsOnMap(String(flags.seats).split(","), map);
       const seats = resolved.seats;
       if (resolved.problems.length) throw new UsageError(resolved.problems.join("; "));
       if (seats.length === 0) throw new UsageError("no se resolvió ninguna butaca válida");
@@ -620,7 +620,7 @@ export const COMMANDS: Command[] = [
         `/cinemas/halls/id/${sala}/function/id/${fn}/channel/id/1/user/id/${session.user.id}`,
         token,
       );
-      const resolved = resolveSeats(String(flags.seats).split(","), map.mapa_sala);
+      const resolved = resolveSeatsOnMap(String(flags.seats).split(","), map);
       if (resolved.problems.length) throw new UsageError(resolved.problems.join("; "));
       const byId = new Map(map.mapa_sala.map((c) => [c.silla_id, c]));
       const total = resolved.seats.reduce((a, s) => a + (seatPrice(byId.get(s.id)!) ?? 0), 0);

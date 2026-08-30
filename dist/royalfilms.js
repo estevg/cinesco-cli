@@ -383,27 +383,6 @@ function groupByDate(functions) {
     funciones: map.get(fecha).sort((a, b) => funcTime(a).localeCompare(funcTime(b)))
   }));
 }
-function resolveSeats(tokens, cells) {
-  const byLabel = new Map(cells.map((c) => [c.mapa_sala_numero_silla.toUpperCase(), c]));
-  const byId = new Map(cells.map((c) => [String(c.silla_id), c]));
-  const seats = [];
-  const problems = [];
-  for (const raw of tokens) {
-    const tok = raw.trim();
-    if (!tok)
-      continue;
-    const cell = byLabel.get(tok.toUpperCase()) ?? byId.get(tok);
-    if (!cell)
-      problems.push(`"${tok}" no existe en esta sala`);
-    else if (!cell.silla_disponible)
-      problems.push(`${cell.mapa_sala_numero_silla} ya está ocupada`);
-    else if (seats.some((s) => s.id === cell.silla_id))
-      continue;
-    else
-      seats.push({ id: cell.silla_id, numero: cell.mapa_sala_numero_silla });
-  }
-  return { seats, problems };
-}
 
 // src/infrastructure/royalfilms/seatmap.ts
 function seatPrice(c) {
@@ -416,6 +395,48 @@ function seatNumber(c) {
   return (c.mapa_sala_numero_silla.match(/\d+/)?.[0] ?? "").padStart(2, "0");
 }
 var rowLetter = (numero) => numero.match(/^[A-Za-z]+/)?.[0] ?? "?";
+function rowLabelsOf(map) {
+  const labels = Array(map.sala_info.sala_filas).fill("");
+  for (const c of map.mapa_sala) {
+    const x = c.mapa_sala_coordenada_x;
+    if (x >= 0 && x < labels.length && !labels[x])
+      labels[x] = rowLetter(c.mapa_sala_numero_silla);
+  }
+  return labels;
+}
+function resolveSeatsOnMap(tokens, map) {
+  const rows = rowLabelsOf(map);
+  const byKey = new Map;
+  const add = (k, c) => {
+    if (k)
+      byKey.set(k.toUpperCase(), c);
+  };
+  for (const c of map.mapa_sala) {
+    const num = c.mapa_sala_numero_silla.match(/\d+/)?.[0] ?? "";
+    const row = rows[c.mapa_sala_coordenada_x] ?? "";
+    add(`${row}${num}`, c);
+    add(`${row}${num.padStart(2, "0")}`, c);
+    add(c.mapa_sala_numero_silla, c);
+    add(String(c.silla_id), c);
+  }
+  const seats = [];
+  const problems = [];
+  for (const raw of tokens) {
+    const tok = raw.trim();
+    if (!tok)
+      continue;
+    const cell = byKey.get(tok.toUpperCase());
+    if (!cell)
+      problems.push(`"${tok}" no existe en esta sala`);
+    else if (!cell.silla_disponible)
+      problems.push(`${tok} ya está ocupada`);
+    else if (seats.some((s) => s.id === cell.silla_id))
+      continue;
+    else
+      seats.push({ id: cell.silla_id, numero: cell.mapa_sala_numero_silla });
+  }
+  return { seats, problems };
+}
 function summarize(map, typeNames) {
   const cells = map.mapa_sala;
   const prices = cells.map(seatPrice).filter((p) => typeof p === "number");
@@ -447,14 +468,12 @@ function summarize(map, typeNames) {
 function paintSeatMap(map, selectedIds = new Set) {
   const { sala_filas, sala_columnas } = map.sala_info;
   const grid = Array.from({ length: sala_filas }, () => Array(sala_columnas).fill(undefined));
-  const rowLabels = Array(sala_filas).fill("");
+  const rowLabels = rowLabelsOf(map);
   for (const c of map.mapa_sala) {
     const x = c.mapa_sala_coordenada_x;
     const y = c.mapa_sala_coordenada_y;
     if (x >= 0 && x < sala_filas && y >= 0 && y < sala_columnas)
       grid[x][y] = c;
-    if (!rowLabels[x])
-      rowLabels[x] = rowLetter(c.mapa_sala_numero_silla);
   }
   const CELL = 5;
   const gutter = 3;
@@ -852,7 +871,7 @@ libres, por ejemplo: ` + libres.join(", "));
 butacas — podés elegir varias separadas por coma (ej: F17,F16,F15) o 'q': `);
     if (ans === null || ans.toLowerCase() === "q")
       throw new UsageError("compra cancelada");
-    const r = resolveSeats(ans.split(","), map.mapa_sala);
+    const r = resolveSeatsOnMap(ans.split(","), map);
     if (r.problems.length) {
       note(style.red(r.problems.join("; ")));
       continue;
@@ -1112,7 +1131,7 @@ algunas libres: ` + libres.join("  ·  "));
       const { token, session } = requireToken();
       const map = await apiGet(`/cinemas/halls/id/${sala}/function/id/${fn}/channel/id/1/user/id/${session.user.id}`, token);
       const byId = new Map(map.mapa_sala.map((c) => [c.silla_id, c]));
-      const resolved = resolveSeats(String(flags.seats).split(","), map.mapa_sala);
+      const resolved = resolveSeatsOnMap(String(flags.seats).split(","), map);
       const seats = resolved.seats;
       if (resolved.problems.length)
         throw new UsageError(resolved.problems.join("; "));
@@ -1255,7 +1274,7 @@ body de venta que el sitio armaría (referencia): ` + JSON.stringify(ventaWouldB
         throw new UsageError("faltan butacas: pasá --seats F17,F16");
       const { token, session } = requireToken();
       const map = await apiGet(`/cinemas/halls/id/${sala}/function/id/${fn}/channel/id/1/user/id/${session.user.id}`, token);
-      const resolved = resolveSeats(String(flags.seats).split(","), map.mapa_sala);
+      const resolved = resolveSeatsOnMap(String(flags.seats).split(","), map);
       if (resolved.problems.length)
         throw new UsageError(resolved.problems.join("; "));
       const byId = new Map(map.mapa_sala.map((c) => [c.silla_id, c]));

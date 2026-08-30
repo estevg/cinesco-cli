@@ -30,6 +30,8 @@ export interface Showtime {
   movieId?: string;
   hall?: string;
   format?: string;
+  seatsFree?: number; // filled on demand (showtimes --occupancy); not in the base listing
+  seatsTotal?: number;
 }
 
 export interface Seat {

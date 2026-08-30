@@ -216,27 +216,6 @@ function groupByDate(functions) {
     funciones: map.get(fecha).sort((a, b) => funcTime(a).localeCompare(funcTime(b)))
   }));
 }
-function resolveSeats(tokens, cells) {
-  const byLabel = new Map(cells.map((c) => [c.mapa_sala_numero_silla.toUpperCase(), c]));
-  const byId = new Map(cells.map((c) => [String(c.silla_id), c]));
-  const seats = [];
-  const problems = [];
-  for (const raw of tokens) {
-    const tok = raw.trim();
-    if (!tok)
-      continue;
-    const cell = byLabel.get(tok.toUpperCase()) ?? byId.get(tok);
-    if (!cell)
-      problems.push(`"${tok}" no existe en esta sala`);
-    else if (!cell.silla_disponible)
-      problems.push(`${cell.mapa_sala_numero_silla} ya está ocupada`);
-    else if (seats.some((s) => s.id === cell.silla_id))
-      continue;
-    else
-      seats.push({ id: cell.silla_id, numero: cell.mapa_sala_numero_silla });
-  }
-  return { seats, problems };
-}
 
 // src/infrastructure/royalfilms/catalog.ts
 var BASE = "https://cinemasroyalfilms.com/api";
@@ -717,6 +696,48 @@ function seatNumber(c) {
   return (c.mapa_sala_numero_silla.match(/\d+/)?.[0] ?? "").padStart(2, "0");
 }
 var rowLetter = (numero) => numero.match(/^[A-Za-z]+/)?.[0] ?? "?";
+function rowLabelsOf(map) {
+  const labels = Array(map.sala_info.sala_filas).fill("");
+  for (const c of map.mapa_sala) {
+    const x = c.mapa_sala_coordenada_x;
+    if (x >= 0 && x < labels.length && !labels[x])
+      labels[x] = rowLetter(c.mapa_sala_numero_silla);
+  }
+  return labels;
+}
+function resolveSeatsOnMap(tokens, map) {
+  const rows = rowLabelsOf(map);
+  const byKey = new Map;
+  const add = (k, c) => {
+    if (k)
+      byKey.set(k.toUpperCase(), c);
+  };
+  for (const c of map.mapa_sala) {
+    const num = c.mapa_sala_numero_silla.match(/\d+/)?.[0] ?? "";
+    const row = rows[c.mapa_sala_coordenada_x] ?? "";
+    add(`${row}${num}`, c);
+    add(`${row}${num.padStart(2, "0")}`, c);
+    add(c.mapa_sala_numero_silla, c);
+    add(String(c.silla_id), c);
+  }
+  const seats = [];
+  const problems = [];
+  for (const raw of tokens) {
+    const tok = raw.trim();
+    if (!tok)
+      continue;
+    const cell = byKey.get(tok.toUpperCase());
+    if (!cell)
+      problems.push(`"${tok}" no existe en esta sala`);
+    else if (!cell.silla_disponible)
+      problems.push(`${tok} ya está ocupada`);
+    else if (seats.some((s) => s.id === cell.silla_id))
+      continue;
+    else
+      seats.push({ id: cell.silla_id, numero: cell.mapa_sala_numero_silla });
+  }
+  return { seats, problems };
+}
 function summarize(map, typeNames) {
   const cells = map.mapa_sala;
   const prices = cells.map(seatPrice).filter((p) => typeof p === "number");
@@ -748,14 +769,12 @@ function summarize(map, typeNames) {
 function paintSeatMap(map, selectedIds = new Set) {
   const { sala_filas, sala_columnas } = map.sala_info;
   const grid = Array.from({ length: sala_filas }, () => Array(sala_columnas).fill(undefined));
-  const rowLabels = Array(sala_filas).fill("");
+  const rowLabels = rowLabelsOf(map);
   for (const c of map.mapa_sala) {
     const x = c.mapa_sala_coordenada_x;
     const y = c.mapa_sala_coordenada_y;
     if (x >= 0 && x < sala_filas && y >= 0 && y < sala_columnas)
       grid[x][y] = c;
-    if (!rowLabels[x])
-      rowLabels[x] = rowLetter(c.mapa_sala_numero_silla);
   }
   const CELL = 5;
   const gutter = 3;
@@ -2560,7 +2579,7 @@ libres, por ejemplo: ` + libres.join(", "));
 butacas — podés elegir varias separadas por coma (ej: F17,F16,F15) o 'q': `);
     if (ans === null || ans.toLowerCase() === "q")
       throw new UsageError("compra cancelada");
-    const r = resolveSeats(ans.split(","), map.mapa_sala);
+    const r = resolveSeatsOnMap(ans.split(","), map);
     if (r.problems.length) {
       note(style.red(r.problems.join("; ")));
       continue;
@@ -3293,8 +3312,8 @@ var SCHEMA_COMMANDS = [
   { group: "Explorar", command: "providers", args: [], summary: "Listar las cadenas" },
   { group: "Explorar", command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empez\xE1 por ac\xE1)" },
   { group: "Explorar", command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena (region = ID de 'regions')" },
-  { group: "Explorar", command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
-  { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|ma\xF1ana|viernes]"], summary: "Funciones. Cada fila trae session/cinema/hall/movie para los comandos de compra" },
+  { group: "Explorar", command: "<provider> movies", args: ["[region]", "[--filter <texto>]"], summary: "Cartelera (filtrable; resume si es larga)" },
+  { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|ma\xF1ana|viernes]", "[--occupancy]"], summary: "Funciones (agrupadas por cine; --occupancy pinta la ocupaci\xF3n por funci\xF3n)" },
   { group: "Explorar", command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas a la vez" },
   { group: "Sesi\xF3n", command: "<provider> login", args: [], summary: "Guardar sesi\xF3n (Royal Films, Cine Colombia). Cinemark entra por compra" },
   { group: "Sesi\xF3n", command: "<provider> status", args: [], summary: "\xBFHay sesi\xF3n activa y de qui\xE9n?" },
@@ -3370,6 +3389,53 @@ async function assertRegion(p, region) {
   const hint = near.length ? `\xBFquisiste decir ${near.slice(0, 3).map((r) => `${r.id} (${r.name})`).join(" \xB7 ")}?` : `corr\xE9 'cinesco ${p.id} regions' para ver los IDs`;
   throw new UsageError2(`region "${region}" no existe en ${p.name}. ${hint}`);
 }
+async function tryEnvLogin(p, flags) {
+  if (!p.purchase)
+    return null;
+  const restored = p.purchase.restore ? await p.purchase.restore() : null;
+  if (restored)
+    return restored;
+  const env = (k) => process.env[`${p.id.toUpperCase()}_${k}`];
+  const email = flags.email || env("EMAIL");
+  const password = flags.password || env("PASSWORD");
+  if (!email || !password)
+    return null;
+  try {
+    return await p.purchase.login({ email: email.trim(), password });
+  } catch {
+    return null;
+  }
+}
+async function enrichOccupancy(p, data, flags, json) {
+  if (p.auth === "browser-assisted") {
+    if (!json)
+      note2(style2.yellow(`${p.name}: ocupaci\xF3n no disponible en modo r\xE1pido (requiere navegador) \u2014 us\xE1 'seats' por funci\xF3n.`));
+    return;
+  }
+  const session = await tryEnvLogin(p, flags);
+  if (!session) {
+    if (!json)
+      note2(style2.yellow(`ocupaci\xF3n: necesit\xE1s sesi\xF3n \u2014 corr\xE9 'cinesco ${p.id} login' o pon\xE9 ${p.id.toUpperCase()}_EMAIL / ${p.id.toUpperCase()}_PASSWORD.`));
+    return;
+  }
+  const CAP = 24;
+  const targets = data.slice(0, CAP);
+  if (!json && data.length > CAP)
+    note2(style2.dim(`ocupaci\xF3n: consultando ${CAP} de ${data.length} funciones\u2026`));
+  const purchase = new PurchaseTickets(p.purchase);
+  let done = 0;
+  for (const st of targets) {
+    try {
+      const seats = (await purchase.seatMap(st, session)).rows.flatMap((r) => r.seats);
+      st.seatsTotal = seats.length;
+      st.seatsFree = seats.filter((x) => x.available).length;
+    } catch {}
+    if (!json)
+      process.stderr.write(`\r  \u2026 ${++done}/${targets.length}`);
+  }
+  if (!json)
+    process.stderr.write("\r\x1B[K");
+}
 async function runProviderVerb(p, verb, pos, flags, json) {
   const region = pos[0] || flags.region;
   const cmd = `${p.id} ${verb}`;
@@ -3383,10 +3449,21 @@ async function runProviderVerb(p, verb, pos, flags, json) {
       });
     } else if (verb === "movies") {
       await assertRegion(p, region);
-      const data = await p.catalog.listMovies(region);
-      out(json, cmd, data, [`${p.id} showtimes <movieId> ${region ?? "[region]"}`], () => {
-        heading2(`${p.name} \xB7 cartelera`);
-        table2(data, [{ key: "id", label: "ID", color: style2.cyan }, { key: "title", label: "Pel\xEDcula", max: 50 }]);
+      let data = await p.catalog.listMovies(region);
+      const filter = flags.filter || flags.grep;
+      if (filter) {
+        const q = norm2(filter);
+        data = data.filter((m) => norm2(m.title).includes(q));
+      }
+      out(json, cmd, data, data[0] ? [`${p.id} showtimes ${data[0].id} ${region ?? "[region]"}`] : [], () => {
+        heading2(`${p.name} \xB7 cartelera${filter ? ` \xB7 "${filter}"` : region ? ` (${region})` : ""}`);
+        if (!data.length) {
+          note2(filter ? `sin coincidencias para "${filter}"` : "sin cartelera");
+          return;
+        }
+        const CAP = 25;
+        table2(data.slice(0, CAP), [{ key: "id", label: "ID", color: style2.cyan }, { key: "title", label: "Pel\xEDcula", max: 50 }]);
+        note2(style2.dim(data.length > CAP ? `mostrando 25 de ${data.length} \xB7 filtr\xE1 con --filter <texto>, o --json para todas` : `${data.length} pel\xEDcula(s)`));
       });
     } else if (verb === "showtimes") {
       const movieId = pos[0];
@@ -3401,6 +3478,8 @@ async function runProviderVerb(p, verb, pos, flags, json) {
           throw new UsageError2(`fecha no reconocida: "${flags.date}" (us\xE1 hoy | ma\xF1ana | <d\xEDa de semana> | YYYY-MM-DD)`);
         data = data.filter((s) => s.date === d);
       }
+      if (flags.occupancy !== undefined)
+        await enrichOccupancy(p, data, flags, json);
       const steps = [];
       if (data[0]) {
         const s = data[0];
@@ -3417,17 +3496,25 @@ async function runProviderVerb(p, verb, pos, flags, json) {
             byCinema.set(k, []);
           byCinema.get(k).push(s);
         }
+        const withOcc = data.some((s) => s.seatsTotal != null);
         for (const [cinema, fns] of byCinema) {
           process.stderr.write(style2.bold(style2.cyan(`
   ${cinema}
 `)));
-          table2(fns, [
-            { key: "date", label: "Fecha" },
-            { key: "time", label: "Hora", color: style2.bold },
-            { key: "format", label: "Formato" },
-            { key: "hall", label: "Sala" },
-            { key: "id", label: "Funci\xF3n", color: style2.dim }
-          ]);
+          if (withOcc) {
+            for (const s of fns) {
+              const occ = s.seatsTotal ? occLine(s.seatsFree ?? 0, s.seatsTotal) : style2.dim("ocupaci\xF3n n/d");
+              note2(`  ${style2.bold(s.time ?? "\u2014")}  ${style2.dim(s.id)}  sala ${s.hall ?? "?"}  ${occ}`);
+            }
+          } else {
+            table2(fns, [
+              { key: "date", label: "Fecha" },
+              { key: "time", label: "Hora", color: style2.bold },
+              { key: "format", label: "Formato" },
+              { key: "hall", label: "Sala" },
+              { key: "id", label: "Funci\xF3n", color: style2.dim }
+            ]);
+          }
         }
       });
     } else if (verb === "regions") {

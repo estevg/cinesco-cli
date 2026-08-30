@@ -73,3 +73,32 @@ test("paintSeatMap does not throw on a valid map", () => {
     process.stdout.write = orig;
   }
 });
+
+import { resolveSeatsOnMap, rowLabelsOf } from "./seatmap.ts";
+
+// The bug a user hit: the map showed "G75" but typing it said "no existe",
+// because the resolver matched the raw label while the display derived the row
+// letter separately. resolveSeatsOnMap resolves what the reader SEES.
+const globalNumbering: SeatMap = {
+  configuracion_general: { cantidad_max_sillas: 10, duracion_tiempo_transaccion: 8 },
+  sala_info: { sala_filas: 1, sala_columnas: 2 },
+  mapa_sala: [
+    // first cell in the row defines the displayed row letter → "A"
+    { silla_id: 10, mapa_sala_coordenada_x: 0, mapa_sala_coordenada_y: 0, mapa_sala_estado_silla: 1, mapa_sala_tipo_silla: 1, mapa_sala_numero_silla: "A1", silla_disponible: true },
+    // this cell's own label letter (B) differs from its grid row → shown as A75
+    { silla_id: 11, mapa_sala_coordenada_x: 0, mapa_sala_coordenada_y: 1, mapa_sala_estado_silla: 1, mapa_sala_tipo_silla: 1, mapa_sala_numero_silla: "B75", silla_disponible: true },
+  ],
+};
+
+test("resolves the displayed label, not just the raw one", () => {
+  expect(rowLabelsOf(globalNumbering)).toEqual(["A"]);
+  // what the reader sees for the second cell is "A75" (row A + number 75)
+  const shown = resolveSeatsOnMap(["A75"], globalNumbering);
+  expect(shown.seats.map((s) => s.id)).toEqual([11]);
+  // the raw label and the silla id still work as fallbacks
+  expect(resolveSeatsOnMap(["B75"], globalNumbering).seats.map((s) => s.id)).toEqual([11]);
+  expect(resolveSeatsOnMap(["11"], globalNumbering).seats.map((s) => s.id)).toEqual([11]);
+  // padded / unpadded both resolve; junk reports a problem
+  expect(resolveSeatsOnMap(["A1"], globalNumbering).seats.map((s) => s.id)).toEqual([10]);
+  expect(resolveSeatsOnMap(["ZZ9"], globalNumbering).problems.length).toBe(1);
+});

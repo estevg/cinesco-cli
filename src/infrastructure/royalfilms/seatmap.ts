@@ -30,6 +30,50 @@ export function seatNumber(c: SeatCell): string {
 }
 const rowLetter = (numero: string): string => (numero.match(/^[A-Za-z]+/)?.[0] ?? "?");
 
+// The row letter shown for each grid row — the single source both the painter
+// and the seat resolver read, so what you type always matches what you see.
+export function rowLabelsOf(map: SeatMap): string[] {
+  const labels: string[] = Array(map.sala_info.sala_filas).fill("");
+  for (const c of map.mapa_sala) {
+    const x = c.mapa_sala_coordenada_x;
+    if (x >= 0 && x < labels.length && !labels[x]) labels[x] = rowLetter(c.mapa_sala_numero_silla);
+  }
+  return labels;
+}
+
+// Resolve user tokens against a seat map by the label the reader SEES
+// (rowLabel + number, e.g. "G75"), plus the raw label and the silla_id as
+// fallbacks. Some halls number seats globally, so the label's own letter can
+// differ from its grid row — this keys off the displayed row letter instead.
+export function resolveSeatsOnMap(
+  tokens: string[],
+  map: SeatMap,
+): { seats: { id: number; numero: string }[]; problems: string[] } {
+  const rows = rowLabelsOf(map);
+  const byKey = new Map<string, SeatCell>();
+  const add = (k: string, c: SeatCell) => { if (k) byKey.set(k.toUpperCase(), c); };
+  for (const c of map.mapa_sala) {
+    const num = c.mapa_sala_numero_silla.match(/\d+/)?.[0] ?? "";
+    const row = rows[c.mapa_sala_coordenada_x] ?? "";
+    add(`${row}${num}`, c);                        // as shown, e.g. G75
+    add(`${row}${num.padStart(2, "0")}`, c);       // padded, e.g. G07
+    add(c.mapa_sala_numero_silla, c);              // raw label
+    add(String(c.silla_id), c);                    // silla id
+  }
+  const seats: { id: number; numero: string }[] = [];
+  const problems: string[] = [];
+  for (const raw of tokens) {
+    const tok = raw.trim();
+    if (!tok) continue;
+    const cell = byKey.get(tok.toUpperCase());
+    if (!cell) problems.push(`"${tok}" no existe en esta sala`);
+    else if (!cell.silla_disponible) problems.push(`${tok} ya está ocupada`);
+    else if (seats.some((s) => s.id === cell.silla_id)) continue;
+    else seats.push({ id: cell.silla_id, numero: cell.mapa_sala_numero_silla });
+  }
+  return { seats, problems };
+}
+
 export interface PriceTier {
   tipo_silla_id: number;
   nombre?: string;
@@ -85,12 +129,11 @@ export function paintSeatMap(map: SeatMap, selectedIds: Set<number> = new Set())
   const grid: (SeatCell | undefined)[][] = Array.from({ length: sala_filas }, () =>
     Array<SeatCell | undefined>(sala_columnas).fill(undefined),
   );
-  const rowLabels: string[] = Array(sala_filas).fill("");
+  const rowLabels = rowLabelsOf(map);
   for (const c of map.mapa_sala) {
     const x = c.mapa_sala_coordenada_x;
     const y = c.mapa_sala_coordenada_y;
     if (x >= 0 && x < sala_filas && y >= 0 && y < sala_columnas) grid[x][y] = c;
-    if (!rowLabels[x]) rowLabels[x] = rowLetter(c.mapa_sala_numero_silla);
   }
 
   const CELL = 5; // "[15] "

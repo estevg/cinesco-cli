@@ -6,7 +6,7 @@ import { sleep, launch } from "../shared/proc.ts";
 import { resolveDate } from "../shared/dates.ts";
 import { PROVIDERS, getProvider } from "../infrastructure/registry.ts";
 import type { Provider } from "../domain/ports.ts";
-import type { Showtime, Movie } from "../domain/entities.ts";
+import type { Showtime, Movie, Session } from "../domain/entities.ts";
 import { emitJson, jsonMode, style, heading, table, note, errline } from "../shared/output.ts";
 import { promptSelect } from "../shared/prompt.ts";
 import { acquireSession, loadSession, reserveViaBrowser, cancelViaBrowser, checkoutViaBrowser, orderStatusViaBrowser } from "../infrastructure/cinecolombia/cinecolombia-token.ts";
@@ -190,8 +190,8 @@ const SCHEMA_COMMANDS: CommandRow[] = [
   { group: "Explorar", command: "providers", args: [], summary: "Listar las cadenas" },
   { group: "Explorar", command: "<provider> regions", args: [], summary: "Ciudades/regiones con su ID (Royal Films/Cinemark exigen ese ID; empezá por acá)" },
   { group: "Explorar", command: "<provider> cinemas", args: ["[region]"], summary: "Cines de una cadena (region = ID de 'regions')" },
-  { group: "Explorar", command: "<provider> movies", args: ["[region]"], summary: "Cartelera de una cadena" },
-  { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]"], summary: "Funciones. Cada fila trae session/cinema/hall/movie para los comandos de compra" },
+  { group: "Explorar", command: "<provider> movies", args: ["[region]", "[--filter <texto>]"], summary: "Cartelera (filtrable; resume si es larga)" },
+  { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]", "[--occupancy]"], summary: "Funciones (agrupadas por cine; --occupancy pinta la ocupación por función)" },
   { group: "Explorar", command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas a la vez" },
   { group: "Sesión", command: "<provider> login", args: [], summary: "Guardar sesión (Royal Films, Cine Colombia). Cinemark entra por compra" },
   { group: "Sesión", command: "<provider> status", args: [], summary: "¿Hay sesión activa y de quién?" },
@@ -277,6 +277,47 @@ async function assertRegion(p: Provider, region: string | undefined): Promise<vo
   throw new UsageError(`region "${region}" no existe en ${p.name}. ${hint}`);
 }
 
+// Get a session without prompting: a saved login first, then env/flag credentials.
+async function tryEnvLogin(p: Provider, flags: Record<string, string>): Promise<import("../domain/entities.ts").Session | null> {
+  if (!p.purchase) return null;
+  const restored = p.purchase.restore ? await p.purchase.restore() : null;
+  if (restored) return restored;
+  const env = (k: string) => process.env[`${p.id.toUpperCase()}_${k}`];
+  const email = flags.email || env("EMAIL");
+  const password = flags.password || env("PASSWORD");
+  if (!email || !password) return null;
+  try { return await p.purchase.login({ email: email.trim(), password }); } catch { return null; }
+}
+
+// Fill seatsFree/seatsTotal on each showtime by fetching its seat map. One call
+// per showtime, so it is bounded and behind the --occupancy flag. Browser-assisted
+// chains (Cine Colombia) are skipped in this fast path.
+async function enrichOccupancy(p: Provider, data: Showtime[], flags: Record<string, string>, json: boolean): Promise<void> {
+  if (p.auth === "browser-assisted") {
+    if (!json) note(style.yellow(`${p.name}: ocupación no disponible en modo rápido (requiere navegador) — usá 'seats' por función.`));
+    return;
+  }
+  const session = await tryEnvLogin(p, flags);
+  if (!session) {
+    if (!json) note(style.yellow(`ocupación: necesitás sesión — corré 'cinesco ${p.id} login' o poné ${p.id.toUpperCase()}_EMAIL / ${p.id.toUpperCase()}_PASSWORD.`));
+    return;
+  }
+  const CAP = 24;
+  const targets = data.slice(0, CAP);
+  if (!json && data.length > CAP) note(style.dim(`ocupación: consultando ${CAP} de ${data.length} funciones…`));
+  const purchase = new PurchaseTickets(p.purchase!);
+  let done = 0;
+  for (const st of targets) {
+    try {
+      const seats = (await purchase.seatMap(st, session)).rows.flatMap((r) => r.seats);
+      st.seatsTotal = seats.length;
+      st.seatsFree = seats.filter((x) => x.available).length;
+    } catch { /* leave this one without occupancy */ }
+    if (!json) process.stderr.write(`\r  … ${++done}/${targets.length}`);
+  }
+  if (!json) process.stderr.write("\r\x1b[K");
+}
+
 async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: Record<string, string>, json: boolean): Promise<number> {
   const region = pos[0] || flags.region;
   const cmd = `${p.id} ${verb}`;
@@ -290,10 +331,19 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
       });
     } else if (verb === "movies") {
       await assertRegion(p, region);
-      const data = await p.catalog.listMovies(region);
-      out(json, cmd, data, [`${p.id} showtimes <movieId> ${region ?? "[region]"}`], () => {
-        heading(`${p.name} · cartelera`);
-        table(data, [{ key: "id", label: "ID", color: style.cyan }, { key: "title", label: "Película", max: 50 }]);
+      let data = await p.catalog.listMovies(region);
+      const filter = flags.filter || flags.grep;
+      if (filter) { const q = norm(filter); data = data.filter((m) => norm(m.title).includes(q)); }
+      out(json, cmd, data, data[0] ? [`${p.id} showtimes ${data[0].id} ${region ?? "[region]"}`] : [], () => {
+        heading(`${p.name} · cartelera${filter ? ` · "${filter}"` : region ? ` (${region})` : ""}`);
+        if (!data.length) { note(filter ? `sin coincidencias para "${filter}"` : "sin cartelera"); return; }
+        // The billboard can be long (Cine Colombia lists ~90 nationwide). A person
+        // asked "what's on", not for 90 rows — cap it and point at the filter.
+        const CAP = 25;
+        table(data.slice(0, CAP), [{ key: "id", label: "ID", color: style.cyan }, { key: "title", label: "Película", max: 50 }]);
+        note(style.dim(data.length > CAP
+          ? `mostrando 25 de ${data.length} · filtrá con --filter <texto>, o --json para todas`
+          : `${data.length} película(s)`));
       });
     } else if (verb === "showtimes") {
       const movieId = pos[0];
@@ -306,6 +356,9 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
         if (!d) throw new UsageError(`fecha no reconocida: "${flags.date}" (usá hoy | mañana | <día de semana> | YYYY-MM-DD)`);
         data = data.filter((s) => s.date === d);
       }
+      // Opt-in occupancy: one seat-map fetch per showtime (needs a session), so
+      // it is a flag, not the default. Browse stays cheap.
+      if (flags.occupancy !== undefined) await enrichOccupancy(p, data, flags, json);
       // Hand the agent the exact next command with every id already filled in —
       // seats/order otherwise need cinema+hall+session(+movie+region) that only
       // this row knows, and the schema can't pre-fill.
@@ -326,15 +379,24 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
           if (!byCinema.has(k)) byCinema.set(k, []);
           byCinema.get(k)!.push(s);
         }
+        const withOcc = data.some((s) => s.seatsTotal != null);
         for (const [cinema, fns] of byCinema) {
           process.stderr.write(style.bold(style.cyan(`\n  ${cinema}\n`)));
-          table(fns, [
-            { key: "date", label: "Fecha" },
-            { key: "time", label: "Hora", color: style.bold },
-            { key: "format", label: "Formato" },
-            { key: "hall", label: "Sala" },
-            { key: "id", label: "Función", color: style.dim },
-          ]);
+          if (withOcc) {
+            // Butaca-style line: hora · función · sala · ocupación (bar + word).
+            for (const s of fns) {
+              const occ = s.seatsTotal ? occLine(s.seatsFree ?? 0, s.seatsTotal) : style.dim("ocupación n/d");
+              note(`  ${style.bold(s.time ?? "—")}  ${style.dim(s.id)}  sala ${s.hall ?? "?"}  ${occ}`);
+            }
+          } else {
+            table(fns, [
+              { key: "date", label: "Fecha" },
+              { key: "time", label: "Hora", color: style.bold },
+              { key: "format", label: "Formato" },
+              { key: "hall", label: "Sala" },
+              { key: "id", label: "Función", color: style.dim },
+            ]);
+          }
         }
       });
     } else if (verb === "regions") {
