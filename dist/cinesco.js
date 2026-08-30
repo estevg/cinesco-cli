@@ -2343,8 +2343,25 @@ function defaultFare(fares) {
 }
 
 // src/presentation/seatmap.ts
+var seatNum = (label, id) => label.match(/\d+/)?.[0] ?? id.match(/\d+/)?.[0] ?? "?";
+function compactRanges(nums) {
+  const ns = [...new Set(nums.map(Number))].sort((a, b) => a - b);
+  if (!ns.length)
+    return "";
+  const parts = [];
+  let start = ns[0], prev = ns[0];
+  for (let i = 1;i <= ns.length; i++) {
+    if (i < ns.length && ns[i] === prev + 1) {
+      prev = ns[i];
+      continue;
+    }
+    parts.push(start === prev ? `${start}` : `${start}-${prev}`);
+    start = prev = ns[i];
+  }
+  return parts.join(" ");
+}
 function paintSeatMap(map, selected = new Set) {
-  const CELL = 5;
+  const CELL = 3;
   const gutter = 3;
   const width = map.columns * CELL;
   const label = "  P A N T A L L A  ";
@@ -2356,41 +2373,59 @@ function paintSeatMap(map, selected = new Set) {
   process.stdout.write(" ".repeat(gutter) + style.dim("╰" + "─".repeat(bar.length) + "╯") + `
 
 `);
-  const box = (inner, paint3) => paint3("[" + inner + "]") + " ";
-  let hasSpecial = false;
+  let hasSpecial = false, hasTaken = false;
+  const freeByRow = [];
   for (const r of map.rows) {
     const byCol = new Map(r.seats.map((s) => [s.column, s]));
     let line = style.dim((r.name || " ").padEnd(2, " ")) + " ";
+    const free = [];
     for (let c = 1;c <= map.columns; c++) {
       const s = byCol.get(c);
       if (!s) {
         line += " ".repeat(CELL);
         continue;
       }
-      const n = (s.label.match(/\d+/)?.[0] ?? s.id.match(/\d+/)?.[0] ?? "?").padStart(2, "0").slice(-2);
       if (s.special)
         hasSpecial = true;
+      let glyph;
       if (selected.has(s.label))
-        line += box(n, (t) => style.cyan(style.bold(t)));
-      else if (!s.available)
-        line += box("··", style.red);
-      else if (s.special)
-        line += box(n, style.magenta);
-      else
-        line += box(n, style.green);
+        glyph = style.cyan(style.bold("██"));
+      else if (!s.available) {
+        glyph = style.dim("▓▓");
+        hasTaken = true;
+      } else if (s.special) {
+        glyph = style.magenta("▒▒");
+        free.push(seatNum(s.label, s.id));
+      } else {
+        glyph = style.green("░░");
+        free.push(seatNum(s.label, s.id));
+      }
+      line += glyph + " ";
     }
     process.stdout.write(line.replace(/\s+$/, "") + `
 `);
+    if (free.length)
+      freeByRow.push({ row: r.name || "?", nums: free.sort((a, b) => Number(a) - Number(b)) });
   }
   const legend = [
-    style.green("[00]") + " libre",
-    ...hasSpecial ? [style.magenta("[00]") + " preferencial"] : [],
-    style.red("[··]") + " ocupada",
-    style.cyan("[00]") + " elegida"
+    style.green("░░") + " libre",
+    ...hasSpecial ? [style.magenta("▒▒") + " preferencial"] : [],
+    ...hasTaken ? [style.dim("▓▓") + " ocupada"] : [],
+    ...selected.size ? [style.cyan("██") + " elegida"] : []
   ];
   process.stdout.write(`
 ` + " ".repeat(gutter) + legend.join("   ") + `
 `);
+  if (freeByRow.length) {
+    const ej = `${freeByRow[0].row}${freeByRow[0].nums[0]}`;
+    process.stdout.write(`
+` + " ".repeat(gutter) + style.dim(`elegí por fila+número (ej ${ej}):`) + `
+`);
+    for (const { row, nums } of freeByRow) {
+      process.stdout.write(" ".repeat(gutter) + style.cyan(row.padEnd(2)) + "  " + compactRanges(nums) + `
+`);
+    }
+  }
 }
 
 // src/presentation/doctor.ts
