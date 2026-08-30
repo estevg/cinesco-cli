@@ -44,7 +44,7 @@ import { doctorCmd } from "./doctor.ts";
 import { skillsCmd } from "./skills.ts";
 import { bigText } from "./bigtext.ts";
 import { BANNERS, type Banner } from "./banners.ts";
-import { occupancyLine } from "./occupancy.ts";
+import { occupancyLine, occLine } from "./occupancy.ts";
 import { auditPending } from "../shared/audit.ts";
 import { login as rfLogin, requireToken as rfRequireToken } from "../infrastructure/royalfilms/auth.ts";
 import { loadSession as rfLoadSession, isExpired as rfIsExpired, decodeJwt as rfDecodeJwt } from "../infrastructure/royalfilms/session.ts";
@@ -441,14 +441,6 @@ function runnable(step: string): string {
   return /^(cinesco|abrí|open|repetí|para )/.test(step) ? step : `cinesco ${step}`;
 }
 
-// A seat-availability line the eye reads correctly: a bar that grows with what's
-// sold + a word, coloured by how full the room is (green = room, red = nearly out).
-function occLine(free: number, total: number): string {
-  const o = occupancyLine(free, total);
-  const col = o.sold >= 0.9 ? style.red : o.sold >= 0.6 ? style.yellow : style.green;
-  return `${o.text} · ${col(o.word)}`;
-}
-
 // Interactive: pick a chain, then explore its browse surface.
 async function startWizard(): Promise<number> {
   if (!process.stdin.isTTY) {
@@ -821,14 +813,12 @@ async function main(): Promise<number> {
   if (positionals.length === 0) {
     if (json) emitJson({ ok: false, command: "", error: { code: "no-command", message: "usá: cinesco providers | start | <provider> movies | schema" } });
     else {
+      // Bare invoke is the first screen — show the same sectioned surface as
+      // --help (one source), not a separate hand-kept list that drifts stale.
       logo();
-      note("\nuso: cinesco <provider> <verb> | cinesco providers | cinesco start\n");
-      providersCmd(false);
-      note("\nnavegación (ambas): regions · cinemas · movies · showtimes");
-      note("royalfilms: " + style.cyan("login · status · buy") + "  (buy = asistente completo)");
-      note("cinecolombia: " + style.cyan("login · status · whoami · seatmap · reserve · cancel · checkout"));
-      note("otros: providers · doctor · skills · start · schema · logo · --json · --version");
-      note(style.dim("\ntip: 'cinesco start' hace todo el flujo guiado (elegí cadena y seguí)."));
+      heading("cinesco");
+      renderCommandGroups(SCHEMA_COMMANDS);
+      note(style.dim("\ntip: 'cinesco start' hace todo el flujo guiado, o 'cinesco --help' para el detalle."));
     }
     return 2;
   }

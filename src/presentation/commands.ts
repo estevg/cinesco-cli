@@ -8,6 +8,7 @@ import { groupByDate, groupByCinema, funcLabel, funcLabelShort, resolveSeats, ty
 import { paintSeatMap, summarize, seatPrice, resolveSeatsOnMap, type SeatMap, type SeatCell } from "../infrastructure/royalfilms/seatmap.ts";
 import { buildReserveBody, reserve, releaseReserve } from "../infrastructure/royalfilms/reserve.ts";
 import { auditPending } from "../shared/audit.ts";
+import { occLine } from "./occupancy.ts";
 import { billingFromToken, buildSessionData, getSessionId, buildCheckoutHtml } from "../infrastructure/royalfilms/checkout.ts";
 import { createSale } from "../infrastructure/royalfilms/sale.ts";
 import { homedir } from "node:os";
@@ -185,7 +186,7 @@ export async function runBuyWizard(): Promise<RunResult> {
   const sum = summarize(map, typeNames);
   heading(`${movie.pelicula_nombre_formato}`);
   note(`${fn.funcion_fecha} · ${funcLabel(fn)}`);
-  note(`${sum.disponibles} libres · máx ${sum.maxPorCompra} por compra`);
+  note(occLine(sum.disponibles, sum.total) + ` · máx ${sum.maxPorCompra} por compra`);
   paintSeatMap(map);
   note("\nprecio por tipo:");
   note(tierLines(sum));
@@ -433,7 +434,7 @@ export const COMMANDS: Command[] = [
         nextSteps: [`reserve hold ${fn} ${sala} <multicineId> --seats <sillaIds|etiquetas>`],
         human() {
           heading(`Sala ${sala} · función ${fn}`);
-          note(`${sum.disponibles} libres · ${sum.ocupadas} ocupadas · máx ${sum.maxPorCompra} por compra`);
+          note(occLine(sum.disponibles, sum.total) + ` · máx ${sum.maxPorCompra} por compra`);
           paintSeatMap(map);
           note("\nprecio por tipo:");
           note(tierLines(sum));

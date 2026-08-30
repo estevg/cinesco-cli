@@ -1,3 +1,4 @@
+import { style } from "../shared/output.ts";
 // Seat availability reads backwards if you print it raw: a nearly-empty room
 // with "98 libres" scans as "98% full". So we present OCCUPANCY (grows with
 // what's sold) as a bar + a word, and keep the direction in a named, tested
@@ -34,4 +35,12 @@ export function occupancyLine(free: number, total: number): { sold: number; word
   const sold = soldFraction(free, total);
   const pct = Math.round(sold * 100);
   return { sold, word: occupancyWord(sold), text: `${occupancyBar(sold)}  ${pct}% ocupada · ${free} de ${total} libres` };
+}
+
+// Coloured one-liner for the room state: green with room, red nearly out. One
+// helper so every seat surface (agent seats, both wizards) reads the same way.
+export function occLine(free: number, total: number): string {
+  const o = occupancyLine(free, total);
+  const col = o.sold >= 0.9 ? style.red : o.sold >= 0.6 ? style.yellow : style.green;
+  return `${o.text} · ${col(o.word)}`;
 }

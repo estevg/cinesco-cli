@@ -575,6 +575,39 @@ function auditPending(action, request) {
   };
 }
 
+// src/presentation/occupancy.ts
+function soldFraction(free, total) {
+  if (!Number.isFinite(total) || total <= 0)
+    return 0;
+  const sold = Math.min(Math.max(total - free, 0), total);
+  return sold / total;
+}
+function occupancyWord(sold) {
+  if (sold >= 1)
+    return "AGOTADA";
+  if (sold >= 0.9)
+    return "casi agotada";
+  if (sold >= 0.6)
+    return "llena";
+  if (sold >= 0.25)
+    return "media";
+  return "vacía";
+}
+function occupancyBar(sold, width = 12) {
+  const filled = Math.round(Math.min(Math.max(sold, 0), 1) * width);
+  return "█".repeat(filled) + "░".repeat(width - filled);
+}
+function occupancyLine(free, total) {
+  const sold = soldFraction(free, total);
+  const pct = Math.round(sold * 100);
+  return { sold, word: occupancyWord(sold), text: `${occupancyBar(sold)}  ${pct}% ocupada · ${free} de ${total} libres` };
+}
+function occLine(free, total) {
+  const o = occupancyLine(free, total);
+  const col = o.sold >= 0.9 ? style.red : o.sold >= 0.6 ? style.yellow : style.green;
+  return `${o.text} · ${col(o.word)}`;
+}
+
 // src/infrastructure/royalfilms/checkout.ts
 function billingFromToken(token) {
   const u = decodeJwt(token).user ?? {};
@@ -860,7 +893,7 @@ necesitás iniciar sesión para ver el mapa y reservar.`));
   const sum = summarize(map, typeNames);
   heading(`${movie.pelicula_nombre_formato}`);
   note(`${fn.funcion_fecha} · ${funcLabel(fn)}`);
-  note(`${sum.disponibles} libres · máx ${sum.maxPorCompra} por compra`);
+  note(occLine(sum.disponibles, sum.total) + ` · máx ${sum.maxPorCompra} por compra`);
   paintSeatMap(map);
   note(`
 precio por tipo:`);
@@ -1104,7 +1137,7 @@ var COMMANDS = [
         nextSteps: [`reserve hold ${fn} ${sala} <multicineId> --seats <sillaIds|etiquetas>`],
         human() {
           heading(`Sala ${sala} · función ${fn}`);
-          note(`${sum.disponibles} libres · ${sum.ocupadas} ocupadas · máx ${sum.maxPorCompra} por compra`);
+          note(occLine(sum.disponibles, sum.total) + ` · máx ${sum.maxPorCompra} por compra`);
           paintSeatMap(map);
           note(`
 precio por tipo:`);
