@@ -167,55 +167,6 @@ function funcTime(f) {
   const m = t.match(/T(\d{2}:\d{2})/);
   return m ? m[1] : "--:--";
 }
-function funcLabel(f) {
-  const parts = [
-    funcTime(f),
-    f.multicine?.multicine_nombre,
-    f.sala?.sala_nombre,
-    [f.formato?.formato_nombre, f.version?.version_nombre].filter(Boolean).join(" ")
-  ].filter(Boolean);
-  return parts.join(" · ");
-}
-function funcLabelShort(f) {
-  const parts = [
-    funcTime(f),
-    f.sala?.sala_nombre,
-    [f.formato?.formato_nombre, f.version?.version_nombre].filter(Boolean).join(" ")
-  ].filter(Boolean);
-  return parts.join(" · ");
-}
-function groupByCinema(functions) {
-  const order = [];
-  const map = new Map;
-  for (const f of functions) {
-    const id = f.funcion_multicine_id;
-    if (!map.has(id)) {
-      map.set(id, { nombre: f.multicine?.multicine_nombre ?? `Cine ${id}`, funciones: [] });
-      order.push(id);
-    }
-    map.get(id).funciones.push(f);
-  }
-  return order.map((id) => ({
-    multicineId: id,
-    nombre: map.get(id).nombre,
-    funciones: map.get(id).funciones.sort((a, b) => funcTime(a).localeCompare(funcTime(b)))
-  }));
-}
-function groupByDate(functions) {
-  const order = [];
-  const map = new Map;
-  for (const f of functions) {
-    if (!map.has(f.funcion_fecha)) {
-      map.set(f.funcion_fecha, []);
-      order.push(f.funcion_fecha);
-    }
-    map.get(f.funcion_fecha).push(f);
-  }
-  return order.map((fecha) => ({
-    fecha,
-    funciones: map.get(fecha).sort((a, b) => funcTime(a).localeCompare(funcTime(b)))
-  }));
-}
 
 // src/infrastructure/royalfilms/catalog.ts
 var BASE = "https://cinemasroyalfilms.com/api";
@@ -618,30 +569,7 @@ function emitJson(env) {
   process.stdout.write(JSON.stringify(env, null, stdoutIsTTY ? 2 : 0) + `
 `);
 }
-var LOGO = [
-  "██████╗  ██████╗ ██╗   ██╗ █████╗ ██╗",
-  "██╔══██╗██╔═══██╗╚██╗ ██╔╝██╔══██╗██║",
-  "██████╔╝██║   ██║ ╚████╔╝ ███████║██║",
-  "██╔══██╗██║   ██║  ╚██╔╝  ██╔══██║██║",
-  "██║  ██║╚██████╔╝   ██║   ██║  ██║███████╗",
-  "╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝"
-];
 var STRIP = "▐▌ ".repeat(14).trimEnd();
-function logo(toStdout = false) {
-  const out = toStdout ? process.stdout : process.stderr;
-  if (!toStdout && !stdoutIsTTY)
-    return;
-  out.write(`
-` + style.dim(STRIP) + `
-`);
-  for (const line of LOGO)
-    out.write(style.bold(style.magenta(line)) + `
-`);
-  out.write(style.cyan("       F I L M S") + style.dim("   ·   cine en tu terminal") + `
-`);
-  out.write(style.dim(STRIP) + `
-`);
-}
 function heading(text) {
   process.stdout.write(`
 ` + style.bold(style.cyan(text)) + `
@@ -688,137 +616,6 @@ function table(rows, columns) {
 // src/infrastructure/royalfilms/seatmap.ts
 function seatPrice(c) {
   return c.silla_precio?.[0]?.precio_taquilla_silla?.tipo_silla_precio;
-}
-function seatTypeId(c) {
-  return c.silla_precio?.[0]?.precio_taquilla_silla?.tipo_silla_id ?? c.mapa_sala_tipo_silla;
-}
-function seatNumber(c) {
-  return (c.mapa_sala_numero_silla.match(/\d+/)?.[0] ?? "").padStart(2, "0");
-}
-var rowLetter = (numero) => numero.match(/^[A-Za-z]+/)?.[0] ?? "?";
-function rowLabelsOf(map) {
-  const labels = Array(map.sala_info.sala_filas).fill("");
-  for (const c of map.mapa_sala) {
-    const x = c.mapa_sala_coordenada_x;
-    if (x >= 0 && x < labels.length && !labels[x])
-      labels[x] = rowLetter(c.mapa_sala_numero_silla);
-  }
-  return labels;
-}
-function resolveSeatsOnMap(tokens, map) {
-  const rows = rowLabelsOf(map);
-  const byKey = new Map;
-  const add = (k, c) => {
-    if (k)
-      byKey.set(k.toUpperCase(), c);
-  };
-  for (const c of map.mapa_sala) {
-    const num = c.mapa_sala_numero_silla.match(/\d+/)?.[0] ?? "";
-    const row = rows[c.mapa_sala_coordenada_x] ?? "";
-    add(`${row}${num}`, c);
-    add(`${row}${num.padStart(2, "0")}`, c);
-    add(c.mapa_sala_numero_silla, c);
-    add(String(c.silla_id), c);
-  }
-  const seats = [];
-  const problems = [];
-  for (const raw of tokens) {
-    const tok = raw.trim();
-    if (!tok)
-      continue;
-    const cell = byKey.get(tok.toUpperCase());
-    if (!cell)
-      problems.push(`"${tok}" no existe en esta sala`);
-    else if (!cell.silla_disponible)
-      problems.push(`${tok} ya está ocupada`);
-    else if (seats.some((s) => s.id === cell.silla_id))
-      continue;
-    else
-      seats.push({ id: cell.silla_id, numero: cell.mapa_sala_numero_silla });
-  }
-  return { seats, problems };
-}
-function summarize(map, typeNames) {
-  const cells = map.mapa_sala;
-  const prices = cells.map(seatPrice).filter((p) => typeof p === "number");
-  const key = (c) => `${seatTypeId(c)}|${seatPrice(c) ?? 0}`;
-  const groups = new Map;
-  for (const c of cells) {
-    const k = key(c);
-    let t = groups.get(k);
-    if (!t) {
-      t = { tipo_silla_id: seatTypeId(c), nombre: typeNames?.get(seatTypeId(c)), precio: seatPrice(c) ?? 0, total: 0, disponibles: 0 };
-      groups.set(k, t);
-    }
-    t.total += 1;
-    if (c.silla_disponible)
-      t.disponibles += 1;
-  }
-  return {
-    filas: map.sala_info.sala_filas,
-    columnas: map.sala_info.sala_columnas,
-    total: cells.length,
-    disponibles: cells.filter((c) => c.silla_disponible).length,
-    ocupadas: cells.filter((c) => !c.silla_disponible).length,
-    maxPorCompra: map.configuracion_general.cantidad_max_sillas,
-    precioMin: prices.length ? Math.min(...prices) : undefined,
-    precioMax: prices.length ? Math.max(...prices) : undefined,
-    tiers: [...groups.values()].sort((a, b) => a.precio - b.precio)
-  };
-}
-function paintSeatMap(map, selectedIds = new Set) {
-  const { sala_filas, sala_columnas } = map.sala_info;
-  const grid = Array.from({ length: sala_filas }, () => Array(sala_columnas).fill(undefined));
-  const rowLabels = rowLabelsOf(map);
-  for (const c of map.mapa_sala) {
-    const x = c.mapa_sala_coordenada_x;
-    const y = c.mapa_sala_coordenada_y;
-    if (x >= 0 && x < sala_filas && y >= 0 && y < sala_columnas)
-      grid[x][y] = c;
-  }
-  const CELL = 5;
-  const gutter = 3;
-  const width = sala_columnas * CELL;
-  const label = "  P A N T A L L A  ";
-  const side = Math.max(2, Math.floor((width - label.length) / 2));
-  const bar = "─".repeat(side) + label + "─".repeat(Math.max(2, width - side - label.length));
-  process.stdout.write(`
-` + " ".repeat(gutter) + style.dim("╭" + bar + "╮") + `
-`);
-  process.stdout.write(" ".repeat(gutter) + style.dim("╰" + "─".repeat(bar.length) + "╯") + `
-
-`);
-  const box = (inner, paint2) => paint2("[" + inner + "]") + " ";
-  for (let x = 0;x < sala_filas; x++) {
-    const rl = (rowLabels[x] || " ").padEnd(2, " ");
-    let line = style.dim(rl) + " ";
-    for (let y = 0;y < sala_columnas; y++) {
-      const c = grid[x][y];
-      if (!c) {
-        line += " ".repeat(CELL);
-        continue;
-      }
-      const n = seatNumber(c);
-      if (selectedIds.has(c.silla_id))
-        line += box(n, (s) => style.cyan(style.bold(s)));
-      else if (!c.silla_disponible)
-        line += box("··", style.red);
-      else if (c.mapa_sala_estado_silla === 2)
-        line += box(n, style.magenta);
-      else
-        line += box(n, style.green);
-    }
-    process.stdout.write(line.replace(/\s+$/, "") + `
-`);
-  }
-  process.stdout.write(`
-` + " ".repeat(gutter) + [
-    style.green("[00]") + " libre",
-    style.magenta("[00]") + " especial",
-    style.red("[··]") + " ocupada",
-    style.cyan("[00]") + " elegida"
-  ].join("   ") + `
-`);
 }
 
 // src/infrastructure/royalfilms/purchase.ts
@@ -2360,395 +2157,6 @@ function paymentUrl() {
   return PAYMENT_URL;
 }
 
-// src/shared/prompt.ts
-import { createInterface as createInterface2 } from "node:readline";
-async function promptLine2(question) {
-  if (!process.stdin.isTTY)
-    return null;
-  const rl = createInterface2({ input: process.stdin, output: process.stderr });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-  });
-}
-async function promptSelect2(title, options) {
-  if (!process.stdin.isTTY)
-    return null;
-  process.stderr.write(`
-` + title + `
-`);
-  options.forEach((o, i) => process.stderr.write(`  ${String(i + 1).padStart(2)}. ${o}
-`));
-  for (;; ) {
-    const ans = await promptLine2(`elegí [1-${options.length}]: `);
-    if (ans === null)
-      return null;
-    const n = Number(ans);
-    if (Number.isInteger(n) && n >= 1 && n <= options.length)
-      return n - 1;
-    process.stderr.write(`opción inválida
-`);
-  }
-}
-async function promptSecret2(question) {
-  if (!process.stdin.isTTY)
-    return null;
-  process.stderr.write(question);
-  const stdin = process.stdin;
-  stdin.setRawMode(true);
-  stdin.resume();
-  stdin.setEncoding("utf8");
-  return new Promise((resolve) => {
-    let secret = "";
-    const onData = (ch) => {
-      for (const c of ch) {
-        if (c === "\r" || c === `
-`) {
-          cleanup();
-          process.stderr.write(`
-`);
-          resolve(secret);
-          return;
-        } else if (c === "\x03") {
-          cleanup();
-          process.stderr.write(`
-`);
-          resolve(null);
-          return;
-        } else if (c === "" || c === "\b") {
-          secret = secret.slice(0, -1);
-        } else {
-          secret += c;
-        }
-      }
-    };
-    const cleanup = () => {
-      stdin.setRawMode(false);
-      stdin.pause();
-      stdin.removeListener("data", onData);
-    };
-    stdin.on("data", onData);
-  });
-}
-
-// src/shared/audit.ts
-import { homedir as homedir5 } from "node:os";
-import { join as join6 } from "node:path";
-import { mkdirSync as mkdirSync4, appendFileSync, chmodSync as chmodSync4 } from "node:fs";
-function dir() {
-  return process.env.CINESCO_AUDIT_DIR || join6(homedir5(), ".cinesco", "audit");
-}
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-function write(record) {
-  const DIR4 = dir();
-  mkdirSync4(DIR4, { recursive: true });
-  const file = join6(DIR4, `${today()}.jsonl`);
-  appendFileSync(file, JSON.stringify(record) + `
-`, { mode: 384 });
-  try {
-    chmodSync4(file, 384);
-  } catch {}
-}
-var counter = 0;
-function newId() {
-  counter += 1;
-  return `${Date.now().toString(36)}-${counter}`;
-}
-function auditPending(action, request2) {
-  const id = newId();
-  write({ id, ts: new Date().toISOString(), action, phase: "pending", request: request2 });
-  return {
-    id,
-    final(outcome, detail) {
-      write({ id, ts: new Date().toISOString(), action, phase: "final", outcome, detail });
-    }
-  };
-}
-
-// src/presentation/occupancy.ts
-function soldFraction(free, total) {
-  if (!Number.isFinite(total) || total <= 0)
-    return 0;
-  const sold = Math.min(Math.max(total - free, 0), total);
-  return sold / total;
-}
-function occupancyWord(sold) {
-  if (sold >= 1)
-    return "AGOTADA";
-  if (sold >= 0.9)
-    return "casi agotada";
-  if (sold >= 0.6)
-    return "llena";
-  if (sold >= 0.25)
-    return "media";
-  return "vacía";
-}
-function occupancyBar(sold, width = 12) {
-  const filled = Math.round(Math.min(Math.max(sold, 0), 1) * width);
-  return "█".repeat(filled) + "░".repeat(width - filled);
-}
-function occupancyLine(free, total) {
-  const sold = soldFraction(free, total);
-  const pct = Math.round(sold * 100);
-  return { sold, word: occupancyWord(sold), text: `${occupancyBar(sold)}  ${pct}% ocupada · ${free} de ${total} libres` };
-}
-function occLine(free, total) {
-  const o = occupancyLine(free, total);
-  const col = o.sold >= 0.9 ? style.red : o.sold >= 0.6 ? style.yellow : style.green;
-  return `${o.text} · ${col(o.word)}`;
-}
-
-// src/presentation/commands.ts
-import { homedir as homedir6 } from "node:os";
-import { join as join7 } from "node:path";
-import { writeFileSync as writeFileSync5 } from "node:fs";
-async function findCinema(cityId, multicineId, token) {
-  const cinemas = await apiGet(`/cinemas/city/${cityId}`, token);
-  const c = cinemas.find((x) => Number(x.multicine_id) === multicineId);
-  if (!c || c.CompanyInfo == null)
-    return null;
-  const company = c.CompanyInfo;
-  return { codigo: Number(c.multicine_codigo), posEpayco: Number(company.empresa_pos_epayco) };
-}
-function openInBrowser(path) {
-  try {
-    const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-    launch2(cmd, [path]);
-  } catch {}
-}
-async function makePaymentSession(token, cinema, amount, invoiceRef) {
-  const sessionData = buildSessionData({
-    posEpayco: cinema.posEpayco,
-    multicineCodigo: cinema.codigo,
-    amount,
-    billing: billingFromToken(token),
-    invoiceRef
-  });
-  const sessionId = await getSessionId(sessionData, token);
-  const htmlPath = join7(homedir6(), ".royalfilms", `pago-${invoiceRef}.html`);
-  writeFileSync5(htmlPath, buildCheckoutHtml(sessionId, fmtCOP(amount)), { mode: 384 });
-  return { sessionId, htmlPath };
-}
-class UsageError extends Error {
-}
-var fmtCOP = (n) => typeof n === "number" ? "$" + n.toLocaleString("es-CO") : "—";
-async function allTicketSales(token, doc) {
-  const d = await apiGet(`/ticket/document/${doc}`, token);
-  return [...d.unredeemed ?? [], ...d.redeemed ?? []];
-}
-async function ticketSaleIds(token, doc) {
-  return new Set((await allTicketSales(token, doc)).map((s) => Number(s.venta_id)));
-}
-async function fetchTypeNames(token) {
-  try {
-    const types = await apiGet(`/cinemas/halls/chairTypes`, token);
-    return new Map(types.map((t) => [Number(t.tipo_silla_id), String(t.tipo_silla_nombre)]));
-  } catch {
-    return new Map;
-  }
-}
-function tierLines(sum) {
-  return sum.tiers.map((t) => `  ${style.cyan((t.nombre ?? `tipo ${t.tipo_silla_id}`).padEnd(16))} ${fmtCOP(t.precio).padStart(10)}   ${t.disponibles}/${t.total} libres`).join(`
-`);
-}
-async function runBuyWizard() {
-  if (!process.stdin.isTTY) {
-    throw new UsageError("el asistente 'buy' es interactivo y necesita una terminal. Usá los comandos sueltos (seats map, reserve hold) en modo automático.");
-  }
-  logo();
-  const pick = async (title, items, label) => {
-    if (items.length === 0)
-      throw new UsageError("no hay opciones disponibles en este paso");
-    const i = await promptSelect2(title, items.map(label));
-    if (i === null)
-      throw new UsageError("selección cancelada");
-    return items[i];
-  };
-  const countries = await apiGet(`/countries`);
-  const country = await pick("¿De qué país sos?", countries, (c) => String(c.pais_nombre));
-  const cities2 = (await apiGet(`/cities`)).filter((c) => c.pais_id === country.pais_id);
-  const city = await pick("¿De qué ciudad?", cities2, (c) => String(c.ciudad_nombre));
-  const cityId = Number(city.ciudad_id);
-  const billboard = await apiGet(`/billboard/city/${cityId}`);
-  if (billboard.length === 0)
-    throw new UsageError(`no hay cartelera para ${city.ciudad_nombre}`);
-  const movieRow = await pick(`¿Qué película querés ver en ${city.ciudad_nombre}?`, billboard, (b) => String(b.pelicula?.pelicula_nombre_formato ?? ""));
-  const movie = movieRow.pelicula;
-  const movieId = Number(movie.pelicula_id);
-  const functions = await apiGet(`/movies/functions/${movieId}/city/${cityId}`);
-  if (functions.length === 0)
-    throw new UsageError("esa película no tiene funciones activas");
-  const byDate = groupByDate(functions);
-  const day = await pick("¿Qué día?", byDate, (d) => `${d.fecha}  (${d.funciones.length} funciones)`);
-  const cinemas = groupByCinema(day.funciones);
-  const cine = await pick("¿En qué cine?", cinemas, (c) => `${c.nombre}  (${c.funciones.length} funciones)`);
-  const fn = await pick(`¿Qué función en ${cine.nombre}?`, cine.funciones, funcLabelShort);
-  let sess = loadSession();
-  if (!sess || isExpired(sess)) {
-    note(style.yellow(`
-necesitás iniciar sesión para ver el mapa y reservar.`));
-    const email = await promptLine2("correo: ") || "";
-    const password = await promptSecret2("clave: ") || "";
-    if (!email || !password)
-      throw new UsageError("faltan credenciales");
-    sess = await login(email, password);
-  }
-  const token = sess.token;
-  const map = await apiGet(`/cinemas/halls/id/${fn.funcion_sala_id}/function/id/${fn.funcion_id}/channel/id/1/user/id/${sess.user.id}`, token);
-  const typeNames2 = await fetchTypeNames(token);
-  const sum = summarize(map, typeNames2);
-  heading(`${movie.pelicula_nombre_formato}`);
-  note(`${fn.funcion_fecha} · ${funcLabel(fn)}`);
-  note(occLine(sum.disponibles, sum.total) + ` · máx ${sum.maxPorCompra} por compra`);
-  paintSeatMap(map);
-  note(`
-precio por tipo:`);
-  note(tierLines(sum));
-  const libres = map.mapa_sala.filter((c) => c.silla_disponible).slice(0, 10).map((c) => c.mapa_sala_numero_silla);
-  note(`
-libres, por ejemplo: ` + libres.join(", "));
-  let seats = [];
-  for (;; ) {
-    const ans = await promptLine2(`
-butacas — podés elegir varias separadas por coma (ej: F17,F16,F15) o 'q': `);
-    if (ans === null || ans.toLowerCase() === "q")
-      throw new UsageError("compra cancelada");
-    const r = resolveSeatsOnMap(ans.split(","), map);
-    if (r.problems.length) {
-      note(style.red(r.problems.join("; ")));
-      continue;
-    }
-    if (r.seats.length === 0) {
-      note("no elegiste ninguna butaca");
-      continue;
-    }
-    if (r.seats.length > sum.maxPorCompra) {
-      note(style.red(`máximo ${sum.maxPorCompra} butacas`));
-      continue;
-    }
-    seats = r.seats;
-    break;
-  }
-  const byId = new Map(map.mapa_sala.map((c) => [c.silla_id, c]));
-  const total = seats.reduce((a, s) => a + (seatPrice(byId.get(s.id)) ?? 0), 0);
-  paintSeatMap(map, new Set(seats.map((s) => s.id)));
-  note(`
-elegiste: ${seats.map((s) => s.numero).join(", ")} · total ${style.bold(fmtCOP(total))}`);
-  const conf = await promptLine2("¿reservar estas butacas? (s/N): ") || "";
-  if (conf.toLowerCase() !== "s" && conf.toLowerCase() !== "si") {
-    return { data: { cancelled: true, seats, total }, human() {
-      note("cancelado, no se reservó nada.");
-    } };
-  }
-  const body = buildReserveBody(fn.funcion_id, fn.funcion_multicine_id, fn.funcion_sala_id, seats);
-  const audit = auditPending("buy.reserve", { body, seats });
-  let reservaId;
-  let reserveInfo;
-  try {
-    const res = await reserve(body, token);
-    const r = res.reserve;
-    reservaId = r.reserva_silla_id;
-    reserveInfo = {
-      reserva_silla_id: r.reserva_silla_id,
-      reserva_silla_funcion: r.reserva_silla_funcion,
-      reserva_silla_multicine: r.reserva_silla_multicine,
-      reserva_silla_sala: r.reserva_silla_sala,
-      reserva_silla_total: total
-    };
-    audit.final("ok", { reserva_silla_id: reservaId });
-  } catch (e) {
-    audit.final("error", { message: e.message });
-    throw e;
-  }
-  heading("¡Butacas retenidas!");
-  note(`${movie.pelicula_nombre_formato} · ${fn.funcion_fecha} ${funcLabel(fn)}`);
-  note(`reserva #${reservaId} · ${seats.map((s) => s.numero).join(", ")} · ${style.bold(fmtCOP(total))}`);
-  note(`la retención expira en ~${map.configuracion_general.duracion_tiempo_transaccion} min.`);
-  let payment = null;
-  let ventaId;
-  note(style.dim(`
-nota: se crea una venta pendiente; si abandonás sin pagar queda EN PROCESO y bloquea nuevas compras hasta que expire.`));
-  const wantPay = await promptLine2("¿crear la venta y generar el pago de ePayco? (s/N): ") || "";
-  if (wantPay.toLowerCase() === "s" || wantPay.toLowerCase() === "si") {
-    const cinema = await findCinema(cityId, fn.funcion_multicine_id, token);
-    if (!cinema || Number.isNaN(cinema.posEpayco)) {
-      note(style.red("no encontré el POS de ePayco para este cine; no se pudo generar el pago."));
-    } else {
-      try {
-        const sale = await createSale({
-          token,
-          session: sess,
-          cityId,
-          multicineId: fn.funcion_multicine_id,
-          movieId,
-          fn,
-          map,
-          typeNames: typeNames2,
-          chosen: seats,
-          reserve: reserveInfo,
-          total
-        });
-        ventaId = sale.venta_id;
-        note(style.green(`venta #${ventaId} creada (pendiente de pago)`));
-      } catch (e) {
-        const m = e.message;
-        note(style.red(`no se pudo crear la venta: ${m}`));
-        if (/pendiente/i.test(m))
-          note(style.dim("tenés una venta pendiente sin pagar; esperá a que expire o completá ese pago."));
-      }
-      const invoiceRef = ventaId ? String(ventaId) : `${fn.funcion_id}-${reservaId}`;
-      payment = await makePaymentSession(token, cinema, total, invoiceRef);
-      openInBrowser(payment.htmlPath);
-      note(style.green(`
-sesión de pago creada · sessionId ${payment.sessionId}`));
-      note("abrí el formulario de ePayco en el navegador (lo intenté abrir automáticamente):");
-      note("  " + style.bold(payment.htmlPath));
-      note(style.dim(`  (si no se abrió: open "${payment.htmlPath}")`));
-      const doc = String(decodeJwt(token).user?.usuario_cliente_documento ?? "");
-      if (doc) {
-        note(`
-esperando el pago… (Ctrl-C para salir; no cobra el CLI)`);
-        const before = await ticketSaleIds(token, doc);
-        const deadline = Date.now() + 10 * 60 * 1000;
-        let fresh;
-        while (Date.now() < deadline && !fresh) {
-          await sleep2(5000);
-          try {
-            fresh = (await allTicketSales(token, doc)).find((s) => !before.has(Number(s.venta_id)));
-          } catch {}
-        }
-        if (fresh)
-          note(style.green(`
-✓ ¡Pago confirmado! venta #${fresh.venta_id} · ${fmtCOP(Number(fresh.venta_total))}. Boletas en tu cuenta.`));
-        else
-          note(style.yellow(`
-no detecté el pago a tiempo. Revisá 'royalfilms sales' o tu correo.`));
-      }
-    }
-  }
-  return {
-    data: {
-      reserva_silla_id: reservaId,
-      pelicula: movie.pelicula_nombre_formato,
-      funcion: { id: fn.funcion_id, fecha: fn.funcion_fecha, cine: fn.multicine?.multicine_nombre },
-      seats,
-      total,
-      willCharge: false,
-      payment
-    },
-    nextSteps: payment ? [`open ${payment.htmlPath}`, `reserve release ${reservaId}`] : [`reserve release ${reservaId}`],
-    human() {
-      note(style.yellow(`
-No se cobró nada. El pago solo ocurre si lo confirmás en el formulario de ePayco.`));
-      note(style.dim(`si te arrepentís: royalfilms reserve release ${reservaId}`));
-    }
-  };
-}
-
 // src/application/purchase.ts
 class PurchaseTickets {
   port;
@@ -2828,7 +2236,7 @@ class BrowseCatalog {
 }
 
 // src/application/seats.ts
-function resolveSeats2(labels, map) {
+function resolveSeats(labels, map) {
   const byKey = new Map;
   const add = (k, s) => {
     if (k)
@@ -2868,7 +2276,7 @@ function defaultFare(fares) {
 }
 
 // src/presentation/seatmap.ts
-function paintSeatMap2(map, selected = new Set) {
+function paintSeatMap(map, selected = new Set) {
   const CELL = 5;
   const gutter = 3;
   const width = map.columns * CELL;
@@ -3070,13 +2478,13 @@ var BANNERS = {
 };
 
 // src/presentation/occupancy.ts
-function soldFraction2(free, total) {
+function soldFraction(free, total) {
   if (!Number.isFinite(total) || total <= 0)
     return 0;
   const sold = Math.min(Math.max(total - free, 0), total);
   return sold / total;
 }
-function occupancyWord2(sold) {
+function occupancyWord(sold) {
   if (sold >= 1)
     return "AGOTADA";
   if (sold >= 0.9)
@@ -3087,53 +2495,53 @@ function occupancyWord2(sold) {
     return "media";
   return "vacía";
 }
-function occupancyBar2(sold, width = 12) {
+function occupancyBar(sold, width = 12) {
   const filled = Math.round(Math.min(Math.max(sold, 0), 1) * width);
   return "█".repeat(filled) + "░".repeat(width - filled);
 }
-function occupancyLine2(free, total) {
-  const sold = soldFraction2(free, total);
+function occupancyLine(free, total) {
+  const sold = soldFraction(free, total);
   const pct = Math.round(sold * 100);
-  return { sold, word: occupancyWord2(sold), text: `${occupancyBar2(sold)}  ${pct}% ocupada · ${free} de ${total} libres` };
+  return { sold, word: occupancyWord(sold), text: `${occupancyBar(sold)}  ${pct}% ocupada · ${free} de ${total} libres` };
 }
-function occLine2(free, total) {
-  const o = occupancyLine2(free, total);
+function occLine(free, total) {
+  const o = occupancyLine(free, total);
   const col = o.sold >= 0.9 ? style.red : o.sold >= 0.6 ? style.yellow : style.green;
   return `${o.text} · ${col(o.word)}`;
 }
 
 // src/shared/audit.ts
-import { homedir as homedir7 } from "node:os";
-import { join as join8 } from "node:path";
-import { mkdirSync as mkdirSync5, appendFileSync as appendFileSync2, chmodSync as chmodSync5 } from "node:fs";
-function dir2() {
-  return process.env.CINESCO_AUDIT_DIR || join8(homedir7(), ".cinesco", "audit");
+import { homedir as homedir5 } from "node:os";
+import { join as join6 } from "node:path";
+import { mkdirSync as mkdirSync4, appendFileSync, chmodSync as chmodSync4 } from "node:fs";
+function dir() {
+  return process.env.CINESCO_AUDIT_DIR || join6(homedir5(), ".cinesco", "audit");
 }
-function today2() {
+function today() {
   return new Date().toISOString().slice(0, 10);
 }
-function write2(record) {
-  const DIR4 = dir2();
-  mkdirSync5(DIR4, { recursive: true });
-  const file = join8(DIR4, `${today2()}.jsonl`);
-  appendFileSync2(file, JSON.stringify(record) + `
+function write(record) {
+  const DIR4 = dir();
+  mkdirSync4(DIR4, { recursive: true });
+  const file = join6(DIR4, `${today()}.jsonl`);
+  appendFileSync(file, JSON.stringify(record) + `
 `, { mode: 384 });
   try {
-    chmodSync5(file, 384);
+    chmodSync4(file, 384);
   } catch {}
 }
-var counter2 = 0;
-function newId2() {
-  counter2 += 1;
-  return `${Date.now().toString(36)}-${counter2}`;
+var counter = 0;
+function newId() {
+  counter += 1;
+  return `${Date.now().toString(36)}-${counter}`;
 }
-function auditPending2(action, request2) {
-  const id = newId2();
-  write2({ id, ts: new Date().toISOString(), action, phase: "pending", request: request2 });
+function auditPending(action, request2) {
+  const id = newId();
+  write({ id, ts: new Date().toISOString(), action, phase: "pending", request: request2 });
   return {
     id,
     final(outcome, detail) {
-      write2({ id, ts: new Date().toISOString(), action, phase: "final", outcome, detail });
+      write({ id, ts: new Date().toISOString(), action, phase: "final", outcome, detail });
     }
   };
 }
@@ -3146,7 +2554,7 @@ async function login2(email, password) {
   }
   return saveSession(token);
 }
-function requireToken2() {
+function requireToken() {
   const session = loadSession();
   if (!session) {
     throw new ApiError("not-authenticated", "no hay sesión — corré 'royalfilms auth login'");
@@ -3158,11 +2566,11 @@ function requireToken2() {
 }
 
 // src/infrastructure/royalfilms/session.ts
-import { homedir as homedir8 } from "node:os";
-import { join as join9 } from "node:path";
-import { mkdirSync as mkdirSync6, writeFileSync as writeFileSync6, readFileSync as readFileSync4, rmSync as rmSync2, existsSync as existsSync5, chmodSync as chmodSync6 } from "node:fs";
-var DIR4 = join9(homedir8(), ".royalfilms");
-var FILE4 = join9(DIR4, "session.json");
+import { homedir as homedir6 } from "node:os";
+import { join as join7 } from "node:path";
+import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync5, readFileSync as readFileSync4, rmSync as rmSync2, existsSync as existsSync5, chmodSync as chmodSync5 } from "node:fs";
+var DIR4 = join7(homedir6(), ".royalfilms");
+var FILE4 = join7(DIR4, "session.json");
 function decodeJwt2(token) {
   const parts = token.split(".");
   if (parts.length !== 3)
@@ -3291,7 +2699,7 @@ function rfDocFromToken(token) {
   return String(u.usuario_cliente_documento ?? "");
 }
 var VERSION = "0.1.0";
-function openInBrowser2(target) {
+function openInBrowser(target) {
   try {
     const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
     launch(cmd, [target]);
@@ -3346,7 +2754,7 @@ function paintBanner(b) {
   }
   process.stderr.write(out);
 }
-function logo2(bannerId = "cinesco") {
+function logo(bannerId = "cinesco") {
   if (!process.stdout.isTTY)
     return;
   const truecolor = !process.env.NO_COLOR && /truecolor|24bit/i.test(process.env.COLORTERM ?? "");
@@ -3442,7 +2850,7 @@ function schemaCmd(json) {
   if (json)
     emitJson2({ ok: true, command: "schema", data: spec });
   else {
-    logo2();
+    logo();
     heading2(`cinesco schema v${spec.schemaVersion}`);
     renderCommandGroups(SCHEMA_COMMANDS);
     note2(style2.dim(`
@@ -3456,7 +2864,7 @@ function providerHelp(p, json) {
     emitJson2({ ok: true, command: `${p.id} help`, data: { id: p.id, name: p.name, auth: p.auth, notes: p.notes, capabilities: p.capabilities, commands: cmds } });
     return 0;
   }
-  logo2(p.id);
+  logo(p.id);
   heading2(`${p.name}  \xB7  ${p.auth === "browser-assisted" ? "login por navegador" : "login directo"}`);
   if (p.notes)
     note2(p.notes);
@@ -3475,7 +2883,7 @@ async function assertRegion(p, region) {
   const q = region.toLowerCase();
   const near = regions.filter((r) => r.name.toLowerCase().includes(q) || r.id.toLowerCase() === q);
   const hint = near.length ? `\xBFquisiste decir ${near.slice(0, 3).map((r) => `${r.id} (${r.name})`).join(" \xB7 ")}?` : `corr\xE9 'cinesco ${p.id} regions' para ver los IDs`;
-  throw new UsageError2(`region "${region}" no existe en ${p.name}. ${hint}`);
+  throw new UsageError(`region "${region}" no existe en ${p.name}. ${hint}`);
 }
 async function tryEnvLogin(p, flags) {
   if (!p.purchase)
@@ -3556,14 +2964,14 @@ async function runProviderVerb(p, verb, pos, flags, json) {
     } else if (verb === "showtimes") {
       const movieId = pos[0];
       if (!movieId)
-        throw new UsageError2("falta movieId");
+        throw new UsageError("falta movieId");
       const reg = pos[1] || flags.region;
       await assertRegion(p, reg);
       let data = await p.catalog.listShowtimes({ movieId, regionId: reg, cinemaId: flags.cinema });
       if (flags.date) {
         const d = resolveDate(flags.date);
         if (!d)
-          throw new UsageError2(`fecha no reconocida: "${flags.date}" (us\xE1 hoy | ma\xF1ana | <d\xEDa de semana> | YYYY-MM-DD)`);
+          throw new UsageError(`fecha no reconocida: "${flags.date}" (us\xE1 hoy | ma\xF1ana | <d\xEDa de semana> | YYYY-MM-DD)`);
         data = data.filter((s) => s.date === d);
       }
       if (flags.occupancy !== undefined)
@@ -3591,7 +2999,7 @@ async function runProviderVerb(p, verb, pos, flags, json) {
 `)));
           if (withOcc) {
             for (const s of fns) {
-              const occ = s.seatsTotal ? occLine2(s.seatsFree ?? 0, s.seatsTotal) : style2.dim("ocupaci\xF3n n/d");
+              const occ = s.seatsTotal ? occLine(s.seatsFree ?? 0, s.seatsTotal) : style2.dim("ocupaci\xF3n n/d");
               note2(`  ${style2.bold(s.time ?? "\u2014")}  ${style2.dim(s.id)}  sala ${s.hall ?? "?"}  ${occ}`);
             }
           } else {
@@ -3607,18 +3015,18 @@ async function runProviderVerb(p, verb, pos, flags, json) {
       });
     } else if (verb === "regions") {
       if (!p.catalog.listRegions)
-        throw new UsageError2(`${p.name} no maneja regiones`);
+        throw new UsageError(`${p.name} no maneja regiones`);
       const data = await p.catalog.listRegions();
       out(json, cmd, data, [`${p.id} cinemas <region>`], () => {
         heading2(`${p.name} \xB7 ciudades`);
         table2(data, [{ key: "id", label: "ID", color: style2.cyan }, { key: "name", label: "Ciudad" }]);
       });
     } else {
-      throw new UsageError2(`verbo desconocido: ${verb} (prob\xE1 cinemas | movies | showtimes | regions)`);
+      throw new UsageError(`verbo desconocido: ${verb} (prob\xE1 cinemas | movies | showtimes | regions)`);
     }
     return 0;
   } catch (e) {
-    if (e instanceof UsageError2) {
+    if (e instanceof UsageError) {
       if (json)
         emitJson2({ ok: false, command: cmd, error: { code: "usage", message: e.message } });
       else
@@ -3635,7 +3043,7 @@ async function runProviderVerb(p, verb, pos, flags, json) {
   }
 }
 
-class UsageError2 extends Error {
+class UsageError extends Error {
 }
 function out(json, command, data, nextSteps, human) {
   if (json)
@@ -3655,7 +3063,7 @@ async function startWizard() {
     errline("'start' es interactivo; us\xE1 los comandos sueltos (cinesco <provider> movies) en modo autom\xE1tico.");
     return 2;
   }
-  logo2();
+  logo();
   const i = await promptSelect("\xBFEn qu\xE9 cine quer\xE9s comprar o reservar?", PROVIDERS.map((p2) => `${p2.name}  (${p2.country})`));
   if (i === null)
     return 2;
@@ -3678,7 +3086,7 @@ async function runPurchaseWizard(provider) {
     errline(`${provider.name} no tiene compra por API todav\xEDa.`);
     return 2;
   }
-  const { promptLine: promptLine3, promptSecret: promptSecret3 } = await Promise.resolve().then(() => (init_prompt(), exports_prompt));
+  const { promptLine: promptLine2, promptSecret: promptSecret2 } = await Promise.resolve().then(() => (init_prompt(), exports_prompt));
   const browse = new BrowseCatalog(provider.catalog);
   const purchase = new PurchaseTickets(provider.purchase);
   const pick = async (title, items, label) => {
@@ -3689,12 +3097,14 @@ async function runPurchaseWizard(provider) {
     const idx = await promptSelect(title, items.map(label));
     return idx === null ? null : items[idx];
   };
-  const fmtCOP2 = (n) => "$" + n.toLocaleString("es-CO");
-  let session;
+  const fmtCOP = (n) => "$" + n.toLocaleString("es-CO");
+  let session = await purchase.restore();
   const isNo = (s) => ["n", "no"].includes(s.trim().toLowerCase());
-  if (provider.auth === "browser-assisted") {
+  if (session) {
+    note2(style2.dim(`sesi\xF3n guardada de ${provider.name} \u2014 no hace falta iniciar sesi\xF3n.`));
+  } else if (provider.auth === "browser-assisted") {
     note2(style2.yellow("necesit\xE1s iniciar sesi\xF3n en el navegador (se hace una vez)."));
-    const yn = await promptLine3("\xBFinicio sesi\xF3n ahora? (s/N): ") || "";
+    const yn = await promptLine2("\xBFinicio sesi\xF3n ahora? (s/N): ") || "";
     if (yn.toLowerCase() !== "s" && yn.toLowerCase() !== "si") {
       note2("ok, cancelado.");
       return 0;
@@ -3707,11 +3117,11 @@ async function runPurchaseWizard(provider) {
     }
   } else {
     for (;; ) {
-      const email = await promptLine3(`correo de socio ${provider.name}: `) || "";
-      const password = await promptSecret3("contrase\xF1a: ") || "";
+      const email = await promptLine2(`correo de socio ${provider.name}: `) || "";
+      const password = await promptSecret2("contrase\xF1a: ") || "";
       if (!email || !password) {
         errline("necesito correo y contrase\xF1a.");
-        if (isNo(await promptLine3("\xBFreintentar? (S/n): ") || "")) {
+        if (isNo(await promptLine2("\xBFreintentar? (S/n): ") || "")) {
           note2("cancelado.");
           return 0;
         }
@@ -3722,7 +3132,7 @@ async function runPurchaseWizard(provider) {
         break;
       } catch (e) {
         errline(e.message);
-        if (isNo(await promptLine3("\xBFreintentar? (S/n): ") || "")) {
+        if (isNo(await promptLine2("\xBFreintentar? (S/n): ") || "")) {
           note2("cancelado.");
           return 0;
         }
@@ -3759,8 +3169,8 @@ async function runPurchaseWizard(provider) {
   const allSeats = map.rows.flatMap((r) => r.seats);
   const perSeatPriced = allSeats.some((s) => s.priceCents != null);
   heading2(`${movie.title} \xB7 ${fn.date} ${fn.time ?? ""} \xB7 ${fn.cinemaName}`);
-  note2(occLine2(allSeats.filter((s) => s.available).length, allSeats.length));
-  paintSeatMap2(map);
+  note2(occLine(allSeats.filter((s) => s.available).length, allSeats.length));
+  paintSeatMap(map);
   let fare;
   if (!perSeatPriced) {
     fare = defaultFare(await purchase.fares(fn, session));
@@ -3770,23 +3180,23 @@ async function runPurchaseWizard(provider) {
     }
   }
   for (;; ) {
-    const raw = await promptLine3(`
+    const raw = await promptLine2(`
 butacas (fila+n\xFAmero ej H12, o varias con coma) o 'q': `) || "";
     if (raw.toLowerCase() === "q" || !raw.trim()) {
       note2("cancelado, no se reserv\xF3 nada.");
       return 0;
     }
-    const { seats, problems } = resolveSeats2(raw.split(","), map);
+    const { seats, problems } = resolveSeats(raw.split(","), map);
     if (problems.length) {
       errline(problems.join("; "));
       continue;
     }
-    paintSeatMap2(map, new Set(seats.map((x) => x.label)));
+    paintSeatMap(map, new Set(seats.map((x) => x.label)));
     const total = perSeatPriced ? seats.reduce((sum, s) => sum + (s.priceCents ?? 0) / 100, 0) : seats.length * ((fare?.priceCents ?? 0) / 100);
     heading2("Tu selecci\xF3n");
     note2(`butacas: ${style2.cyan(seats.map((x) => x.label).join(", "))}`);
-    note2(`${fare ? fare.name + " \xB7 " : ""}total ${style2.bold(fmtCOP2(total))}${perSeatPriced ? "" : " (+ cargo por servicio)"}`);
-    const conf = await promptLine3("\xBFreservar y generar el pago? crea una orden real (s / N / otra para re-elegir): ") || "";
+    note2(`${fare ? fare.name + " \xB7 " : ""}total ${style2.bold(fmtCOP(total))}${perSeatPriced ? "" : " (+ cargo por servicio)"}`);
+    const conf = await promptLine2("\xBFreservar y generar el pago? crea una orden real (s / N / otra para re-elegir): ") || "";
     if (conf.toLowerCase() === "n" || conf === "") {
       note2("cancelado, no se reserv\xF3 nada.");
       return 0;
@@ -3806,9 +3216,9 @@ butacas (fila+n\xFAmero ej H12, o varias con coma) o 'q': `) || "";
 reservando y generando el link de pago\u2026 (el CLI no cobra; pag\xE1s vos)`));
     try {
       const { order, link } = await purchase.checkout({ session, showtime: fn, movie, regionId: region.id, seats, fare, method });
-      openInBrowser2(link.url);
+      openInBrowser(link.url);
       heading2("\xA1Link de pago listo!");
-      note2(`orden ${order.id} \xB7 ${order.seatLabels.join(", ")} \xB7 total ${style2.bold(fmtCOP2(order.total))}${method ? " \xB7 " + method.name : ""}`);
+      note2(`orden ${order.id} \xB7 ${order.seatLabels.join(", ")} \xB7 total ${style2.bold(fmtCOP(order.total))}${method ? " \xB7 " + method.name : ""}`);
       note2(`abr\xED el pago${link.method ? ` (${link.method})` : ""} para completar (el CLI no cobra):`);
       note2("  " + style2.cyan(link.url));
       note2(style2.dim(`
@@ -3871,8 +3281,8 @@ async function runPortVerb(p, verb, flags, json) {
       const free = seats.filter((x) => x.available).map((x) => ({ label: x.label, priceCents: x.priceCents ?? null, special: !!x.special }));
       out(json, cmd, free, [`${p.id} order --cinema ${flags.cinema} --session ${flags.session} --seats <labels>`], () => {
         heading2(`${p.name} \xB7 butacas libres`);
-        note2(occLine2(free.length, seats.length));
-        paintSeatMap2(map);
+        note2(occLine(free.length, seats.length));
+        paintSeatMap(map);
       });
       return 0;
     }
@@ -3882,7 +3292,7 @@ async function runPortVerb(p, verb, flags, json) {
           return fail("usage", `falta --${req}`);
       const session = await login3();
       const map = await purchase.seatMap(showtime, session);
-      const { seats, problems } = resolveSeats2((flags.seats || "").split(","), map);
+      const { seats, problems } = resolveSeats((flags.seats || "").split(","), map);
       if (problems.length)
         return fail("seat-error", problems.join("; "));
       const perSeatPriced = map.rows.some((r) => r.seats.some((x) => x.priceCents != null));
@@ -3905,7 +3315,7 @@ async function runPortVerb(p, verb, flags, json) {
         } catch {}
       }
       const movie = { id: flags.movie ?? "", title };
-      const audit = auditPending2(`${p.id}.order`, { cinema: flags.cinema, session: flags.session, hall: flags.hall, movie: flags.movie, region: flags.region, seats: seats.map((s) => s.label) });
+      const audit = auditPending(`${p.id}.order`, { cinema: flags.cinema, session: flags.session, hall: flags.hall, movie: flags.movie, region: flags.region, seats: seats.map((s) => s.label) });
       let order, link;
       try {
         ({ order, link } = await purchase.checkout({ session, showtime, movie, regionId: flags.region, seats, fare, method }));
@@ -3987,7 +3397,7 @@ async function main() {
     return 0;
   }
   if (positionals[0] === "logo") {
-    logo2();
+    logo();
     return 0;
   }
   if ((flags.help || positionals[0] === "help" || positionals[0] === "-h") && !getProvider(positionals[0])) {
@@ -3998,7 +3408,7 @@ async function main() {
     if (json)
       emitJson2({ ok: false, command: "", error: { code: "no-command", message: "us\xE1: cinesco providers | start | <provider> movies | schema" } });
     else {
-      logo2();
+      logo();
       heading2("cinesco");
       renderCommandGroups(SCHEMA_COMMANDS);
       note2(style2.dim(`
@@ -4051,15 +3461,15 @@ tip: 'cinesco start' hace todo el flujo guiado, o 'cinesco --help' para el detal
   }
   if (p.id === "royalfilms" && (verb === "payment-wait" || verb === "sales" || verb === "pending" || verb === "cancel")) {
     try {
-      const { token } = requireToken2();
+      const { token } = requireToken();
       const doc = rfDocFromToken(token);
       if (!doc)
         throw new Error("no encontr\xE9 tu documento en la sesi\xF3n");
       if (verb === "cancel") {
         const id = positionals[2] || flags.id;
         if (!id)
-          throw new UsageError2("falta el id de reserva: cinesco royalfilms cancel <reservaId>");
-        const audit = auditPending2("royalfilms.cancel", { reservaId: Number(id) });
+          throw new UsageError("falta el id de reserva: cinesco royalfilms cancel <reservaId>");
+        const audit = auditPending("royalfilms.cancel", { reservaId: Number(id) });
         try {
           await releaseReserve2(Number(id), token);
         } catch (e) {
@@ -4141,14 +3551,12 @@ tip: 'cinesco start' hace todo el flujo guiado, o 'cinesco --help' para el detal
       return 0;
     }
     if (verb === "buy") {
-      const r = await runBuyWizard();
-      r.human();
-      return 0;
+      return runPurchaseWizard(p);
     }
-    const promptLine3 = (await Promise.resolve().then(() => (init_prompt(), exports_prompt))).promptLine;
-    const promptSecret3 = (await Promise.resolve().then(() => (init_prompt(), exports_prompt))).promptSecret;
-    const email = flags.email || process.env.ROYALFILMS_EMAIL || await promptLine3("correo: ") || "";
-    const password = flags.password || process.env.ROYALFILMS_PASSWORD || await promptSecret3("clave: ") || "";
+    const promptLine2 = (await Promise.resolve().then(() => (init_prompt(), exports_prompt))).promptLine;
+    const promptSecret2 = (await Promise.resolve().then(() => (init_prompt(), exports_prompt))).promptSecret;
+    const email = flags.email || process.env.ROYALFILMS_EMAIL || await promptLine2("correo: ") || "";
+    const password = flags.password || process.env.ROYALFILMS_PASSWORD || await promptSecret2("clave: ") || "";
     if (!email || !password) {
       const msg = "faltan credenciales (--email/--password, env, o terminal interactiva)";
       if (json)
@@ -4246,7 +3654,7 @@ tip: 'cinesco start' hace todo el flujo guiado, o 'cinesco --help' para el detal
         emitJson2({ ok: true, command: "cinecolombia seatmap", data: s });
       else {
         heading2(`Funci\xF3n ${showtimeId}`);
-        note2(occLine2(s.available.length, s.total) + (s.precioDefault ? " \xB7 precio $" + s.precioDefault.toLocaleString("es-CO") : ""));
+        note2(occLine(s.available.length, s.total) + (s.precioDefault ? " \xB7 precio $" + s.precioDefault.toLocaleString("es-CO") : ""));
         paintSeats(s.seats);
         note2(`
 reservar: cinesco cinecolombia reserve <siteId> ` + showtimeId + " --seats <seatId,seatId>");
@@ -4346,7 +3754,7 @@ Para pagar: abr\xED ` + style2.cyan(payUrl) + " en el navegador (logueado). El C
     try {
       const co = await checkoutViaBrowser2(siteId, showtimeId, seats, (m) => !json && note2(m));
       if (!json)
-        openInBrowser2(co.paymentUrl);
+        openInBrowser(co.paymentUrl);
       let outcome;
       if (flags.wait) {
         if (!json)

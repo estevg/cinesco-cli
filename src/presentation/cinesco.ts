@@ -34,7 +34,6 @@ async function ccWaitPayment(orderId: string, log: (s: string) => void): Promise
   }
   return "timeout";
 }
-import { runBuyWizard as rfBuyWizard } from "./commands.ts";
 import { cinemark as cmkProvider } from "../infrastructure/cinemark/index.ts";
 import { PurchaseTickets } from "../application/purchase.ts";
 import { BrowseCatalog } from "../application/browse.ts";
@@ -491,11 +490,13 @@ async function runPurchaseWizard(provider: Provider): Promise<number> {
   };
   const fmtCOP = (n: number) => "$" + n.toLocaleString("es-CO");
 
-  // 1) login — headless (email+password) retries on a bad password instead of quitting;
-  // browser-assisted (Cine Colombia) opens the browser.
-  let session;
+  // 1) login — reuse a saved session first (cinesco <chain> login), else prompt.
+  // Direct auth retries on a bad password; browser-assisted opens the browser.
+  let session = await purchase.restore();
   const isNo = (s: string) => ["n", "no"].includes(s.trim().toLowerCase());
-  if (provider.auth === "browser-assisted") {
+  if (session) {
+    note(style.dim(`sesión guardada de ${provider.name} — no hace falta iniciar sesión.`));
+  } else if (provider.auth === "browser-assisted") {
     note(style.yellow("necesitás iniciar sesión en el navegador (se hace una vez)."));
     const yn = (await promptLine("¿inicio sesión ahora? (s/N): ")) || "";
     if (yn.toLowerCase() !== "s" && yn.toLowerCase() !== "si") {
@@ -950,9 +951,8 @@ async function main(): Promise<number> {
       return 0;
     }
     if (verb === "buy") {
-      const r = await rfBuyWizard();
-      r.human();
-      return 0;
+      // One wizard for every chain (over the PurchasePort) — no RF-specific copy.
+      return runPurchaseWizard(p);
     }
     // login
     const promptLine = (await import("../shared/prompt.ts")).promptLine;
