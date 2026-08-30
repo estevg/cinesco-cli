@@ -342,7 +342,7 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
         // The billboard can be long (Cine Colombia lists ~90 nationwide). A person
         // asked "what's on", not for 90 rows — cap it and point at the filter.
         const CAP = 25;
-        table(data.slice(0, CAP), [{ key: "id", label: "ID", color: style.cyan }, { key: "title", label: "Película", max: 50 }]);
+        table(data.slice(0, CAP), [{ key: "title", label: "Película", max: 50 }, { key: "id", label: "ID (para showtimes)", color: style.cyan }]);
         note(style.dim(data.length > CAP
           ? `mostrando 25 de ${data.length} · filtrá con --filter <texto>, o --json para todas`
           : `${data.length} película(s)`));
@@ -373,26 +373,32 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
       }
       out(json, cmd, data, steps, () => {
         heading(`${p.name} · funciones de ${movieId}`);
-        // The cinema repeats down every row — promote it to a heading and let
-        // the rows carry only what varies (repetition is a heading, human-output).
-        const byCinema = new Map<string, typeof data>();
-        for (const s of data) {
+        // Human default is one day, not the whole week (the API returns every
+        // date; "what's playing" asks about the soonest). --json still returns
+        // all; --date picks another day.
+        const allDates = [...new Set(data.map((s) => s.date))].sort();
+        const shown = !flags.date && allDates.length > 1 ? data.filter((s) => s.date === allDates[0]) : data;
+        const day = shown[0]?.date;
+        const others = allDates.filter((d) => d !== day);
+        if (day) note(style.dim(`día ${day}${others.length ? ` · otros: ${others.join(", ")} — --date <YYYY-MM-DD> o --json para todas` : ""}`));
+        // The cinema repeats down every row — promote it to a heading; the date
+        // is now the sub-heading above, so the rows carry only what varies.
+        const byCinema = new Map<string, typeof shown>();
+        for (const s of shown) {
           const k = s.cinemaName || `cine ${s.cinemaId}`;
           if (!byCinema.has(k)) byCinema.set(k, []);
           byCinema.get(k)!.push(s);
         }
-        const withOcc = data.some((s) => s.seatsTotal != null);
+        const withOcc = shown.some((s) => s.seatsTotal != null);
         for (const [cinema, fns] of byCinema) {
           process.stderr.write(style.bold(style.cyan(`\n  ${cinema}\n`)));
           if (withOcc) {
-            // Butaca-style line: hora · función · sala · ocupación (bar + word).
             for (const s of fns) {
               const occ = s.seatsTotal ? occLine(s.seatsFree ?? 0, s.seatsTotal) : style.dim("ocupación n/d");
               note(`  ${style.bold(s.time ?? "—")}  ${style.dim(s.id)}  sala ${s.hall ?? "?"}  ${occ}`);
             }
           } else {
             table(fns, [
-              { key: "date", label: "Fecha" },
               { key: "time", label: "Hora", color: style.bold },
               { key: "format", label: "Formato" },
               { key: "hall", label: "Sala" },

@@ -3026,7 +3026,7 @@ async function runProviderVerb(p, verb, pos, flags, json) {
           return;
         }
         const CAP = 25;
-        table2(data.slice(0, CAP), [{ key: "id", label: "ID", color: style2.cyan }, { key: "title", label: "Pel\xEDcula", max: 50 }]);
+        table2(data.slice(0, CAP), [{ key: "title", label: "Pel\xEDcula", max: 50 }, { key: "id", label: "ID (para showtimes)", color: style2.cyan }]);
         note2(style2.dim(data.length > CAP ? `mostrando 25 de ${data.length} \xB7 filtr\xE1 con --filter <texto>, o --json para todas` : `${data.length} pel\xEDcula(s)`));
       });
     } else if (verb === "showtimes") {
@@ -3053,14 +3053,20 @@ async function runProviderVerb(p, verb, pos, flags, json) {
       }
       out(json, cmd, data, steps, () => {
         heading2(`${p.name} \xB7 funciones de ${movieId}`);
+        const allDates = [...new Set(data.map((s) => s.date))].sort();
+        const shown = !flags.date && allDates.length > 1 ? data.filter((s) => s.date === allDates[0]) : data;
+        const day = shown[0]?.date;
+        const others = allDates.filter((d) => d !== day);
+        if (day)
+          note2(style2.dim(`d\xEDa ${day}${others.length ? ` \xB7 otros: ${others.join(", ")} \u2014 --date <YYYY-MM-DD> o --json para todas` : ""}`));
         const byCinema = new Map;
-        for (const s of data) {
+        for (const s of shown) {
           const k = s.cinemaName || `cine ${s.cinemaId}`;
           if (!byCinema.has(k))
             byCinema.set(k, []);
           byCinema.get(k).push(s);
         }
-        const withOcc = data.some((s) => s.seatsTotal != null);
+        const withOcc = shown.some((s) => s.seatsTotal != null);
         for (const [cinema, fns] of byCinema) {
           process.stderr.write(style2.bold(style2.cyan(`
   ${cinema}
@@ -3072,7 +3078,6 @@ async function runProviderVerb(p, verb, pos, flags, json) {
             }
           } else {
             table2(fns, [
-              { key: "date", label: "Fecha" },
               { key: "time", label: "Hora", color: style2.bold },
               { key: "format", label: "Formato" },
               { key: "hall", label: "Sala" },
