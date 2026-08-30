@@ -1,27 +1,28 @@
-// Append-only audit log for mutations. Two-phase: write a "pending" record
-// BEFORE the network call, then a "final" record with the same id after, so a
-// crash mid-flight leaves an auditable pending entry instead of silence.
-// Day-bucketed JSONL under ~/.royalfilms/audit/, owner-only.
+// Append-only audit log for mutations, chain-agnostic. Two-phase: write a
+// "pending" record BEFORE the network call, then a "final" record with the same
+// id after, so a process killed mid-flight leaves an auditable pending entry
+// (with the reserva/order id) instead of silence. Day-bucketed JSONL under
+// ~/.cinesco/audit/, owner-only. Never write secrets or credentials here —
+// identifiers only. CINESCO_AUDIT_DIR overrides the location (used by tests).
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, appendFileSync, chmodSync } from "node:fs";
 
-const DIR = join(homedir(), ".royalfilms", "audit");
+// Read lazily so CINESCO_AUDIT_DIR set after import (e.g. in tests) still applies.
+function dir(): string {
+  return process.env.CINESCO_AUDIT_DIR || join(homedir(), ".cinesco", "audit");
+}
 
 function today(): string {
-  // Date is fine here (not a workflow); bucket by UTC day.
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toISOString().slice(0, 10); // UTC day; fine outside a workflow
 }
 
 function write(record: Record<string, unknown>): void {
+  const DIR = dir();
   mkdirSync(DIR, { recursive: true });
   const file = join(DIR, `${today()}.jsonl`);
   appendFileSync(file, JSON.stringify(record) + "\n", { mode: 0o600 });
-  try {
-    chmodSync(file, 0o600);
-  } catch {
-    /* best effort */
-  }
+  try { chmodSync(file, 0o600); } catch { /* best effort */ }
 }
 
 let counter = 0;
@@ -35,6 +36,7 @@ export interface AuditHandle {
   final: (outcome: "ok" | "error", detail?: unknown) => void;
 }
 
+// Record an intent, returning a handle to close it once the call resolves.
 export function auditPending(action: string, request: Record<string, unknown>): AuditHandle {
   const id = newId();
   write({ id, ts: new Date().toISOString(), action, phase: "pending", request });
@@ -47,5 +49,5 @@ export function auditPending(action: string, request: Record<string, unknown>): 
 }
 
 export function auditDir(): string {
-  return DIR;
+  return dir();
 }

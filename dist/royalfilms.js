@@ -539,15 +539,18 @@ function releaseReserve(reservaId, token) {
   return apiDelete(`/reserve/ticket-office/${reservaId}`, token);
 }
 
-// src/infrastructure/royalfilms/audit.ts
+// src/shared/audit.ts
 import { homedir as homedir2 } from "node:os";
 import { join as join2 } from "node:path";
 import { mkdirSync as mkdirSync2, appendFileSync, chmodSync as chmodSync2 } from "node:fs";
-var DIR2 = join2(homedir2(), ".royalfilms", "audit");
+function dir() {
+  return process.env.CINESCO_AUDIT_DIR || join2(homedir2(), ".cinesco", "audit");
+}
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
 function write(record) {
+  const DIR2 = dir();
   mkdirSync2(DIR2, { recursive: true });
   const file = join2(DIR2, `${today()}.jsonl`);
   appendFileSync(file, JSON.stringify(record) + `

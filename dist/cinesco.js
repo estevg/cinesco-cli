@@ -1509,11 +1509,13 @@ var wwwPost = (path, body, fp) => postJson(`${WWW}${path}`, body, { headers: hea
 function loyaltyLogin(body) {
   return postJsonWithHeaders(`${CORE}${vista("/loyalty/login")}`, body, { headers: headers() });
 }
+var VOUCHER_STUB = JSON.stringify({ CardNumber: "8888888888888888", CardType: "VOUCHERW", PaymentInfo: "-", PaymentValueCents: 0 });
+function rsaOaepSha256(publicKeyPem, plain) {
+  return publicEncrypt({ key: createPublicKey(publicKeyPem), padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" }, Buffer.from(plain)).toString("base64");
+}
 async function encryptPaymentInfo(fp) {
   const { publicKey } = await wwwGet(`/api/payments/encryption/public-key`, fp);
-  const plain = JSON.stringify({ CardNumber: "8888888888888888", CardType: "VOUCHERW", PaymentInfo: "-", PaymentValueCents: 0 });
-  const enc = publicEncrypt({ key: createPublicKey(publicKey), padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" }, Buffer.from(plain));
-  return enc.toString("base64");
+  return rsaOaepSha256(publicKey, VOUCHER_STUB);
 }
 
 // src/infrastructure/cinemark/catalog.ts
@@ -2431,15 +2433,18 @@ async function promptSecret2(question) {
   });
 }
 
-// src/infrastructure/royalfilms/audit.ts
+// src/shared/audit.ts
 import { homedir as homedir5 } from "node:os";
 import { join as join6 } from "node:path";
 import { mkdirSync as mkdirSync4, appendFileSync, chmodSync as chmodSync4 } from "node:fs";
-var DIR4 = join6(homedir5(), ".royalfilms", "audit");
+function dir() {
+  return process.env.CINESCO_AUDIT_DIR || join6(homedir5(), ".cinesco", "audit");
+}
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
 function write(record) {
+  const DIR4 = dir();
   mkdirSync4(DIR4, { recursive: true });
   const file = join6(DIR4, `${today()}.jsonl`);
   appendFileSync(file, JSON.stringify(record) + `
@@ -3059,6 +3064,42 @@ function occupancyLine(free, total) {
   return { sold, word: occupancyWord(sold), text: `${occupancyBar(sold)}  ${pct}% ocupada · ${free} de ${total} libres` };
 }
 
+// src/shared/audit.ts
+import { homedir as homedir7 } from "node:os";
+import { join as join8 } from "node:path";
+import { mkdirSync as mkdirSync5, appendFileSync as appendFileSync2, chmodSync as chmodSync5 } from "node:fs";
+function dir2() {
+  return process.env.CINESCO_AUDIT_DIR || join8(homedir7(), ".cinesco", "audit");
+}
+function today2() {
+  return new Date().toISOString().slice(0, 10);
+}
+function write2(record) {
+  const DIR4 = dir2();
+  mkdirSync5(DIR4, { recursive: true });
+  const file = join8(DIR4, `${today2()}.jsonl`);
+  appendFileSync2(file, JSON.stringify(record) + `
+`, { mode: 384 });
+  try {
+    chmodSync5(file, 384);
+  } catch {}
+}
+var counter2 = 0;
+function newId2() {
+  counter2 += 1;
+  return `${Date.now().toString(36)}-${counter2}`;
+}
+function auditPending2(action, request2) {
+  const id = newId2();
+  write2({ id, ts: new Date().toISOString(), action, phase: "pending", request: request2 });
+  return {
+    id,
+    final(outcome, detail) {
+      write2({ id, ts: new Date().toISOString(), action, phase: "final", outcome, detail });
+    }
+  };
+}
+
 // src/infrastructure/royalfilms/auth.ts
 async function login2(email, password) {
   const token = await apiPost(`/auth/login`, { email, password });
@@ -3079,11 +3120,11 @@ function requireToken2() {
 }
 
 // src/infrastructure/royalfilms/session.ts
-import { homedir as homedir7 } from "node:os";
-import { join as join8 } from "node:path";
-import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync6, readFileSync as readFileSync4, rmSync as rmSync2, existsSync as existsSync5, chmodSync as chmodSync5 } from "node:fs";
-var DIR5 = join8(homedir7(), ".royalfilms");
-var FILE4 = join8(DIR5, "session.json");
+import { homedir as homedir8 } from "node:os";
+import { join as join9 } from "node:path";
+import { mkdirSync as mkdirSync6, writeFileSync as writeFileSync6, readFileSync as readFileSync4, rmSync as rmSync2, existsSync as existsSync5, chmodSync as chmodSync6 } from "node:fs";
+var DIR4 = join9(homedir8(), ".royalfilms");
+var FILE4 = join9(DIR4, "session.json");
 function decodeJwt2(token) {
   const parts = token.split(".");
   if (parts.length !== 3)
@@ -3831,7 +3872,15 @@ async function runPortVerb(p, verb, flags, json) {
         } catch {}
       }
       const movie = { id: flags.movie ?? "", title };
-      const { order, link } = await purchase.checkout({ session, showtime, movie, regionId: flags.region, seats, fare, method });
+      const audit = auditPending2(`${p.id}.order`, { cinema: flags.cinema, session: flags.session, hall: flags.hall, movie: flags.movie, region: flags.region, seats: seats.map((s) => s.label) });
+      let order, link;
+      try {
+        ({ order, link } = await purchase.checkout({ session, showtime, movie, regionId: flags.region, seats, fare, method }));
+      } catch (e) {
+        audit.final("error", { message: e.message });
+        throw e;
+      }
+      audit.final("ok", { orderId: order.id, total: order.total, seats: order.seatLabels });
       out(json, cmd, [{ orderId: order.id, total: order.total, seats: order.seatLabels, paymentUrl: link.url, method: link.method }], [`abr\xED el link para pagar (el CLI no cobra): ${link.url}`], () => {
         heading2("\xA1Orden lista para pagar!");
         note2(`orden ${order.id} \xB7 ${order.seatLabels.join(", ")} \xB7 total $${order.total.toLocaleString("es-CO")}${link.method ? " \xB7 " + link.method : ""}`);
@@ -3984,7 +4033,14 @@ tip: 'cinesco start' hace todo el flujo guiado (eleg\xED cadena y segu\xED).`));
         const id = positionals[2] || flags.id;
         if (!id)
           throw new UsageError2("falta el id de reserva: cinesco royalfilms cancel <reservaId>");
-        await releaseReserve2(Number(id), token);
+        const audit = auditPending2("royalfilms.cancel", { reservaId: Number(id) });
+        try {
+          await releaseReserve2(Number(id), token);
+        } catch (e) {
+          audit.final("error", { message: e.message });
+          throw e;
+        }
+        audit.final("ok", { released: Number(id) });
         if (json)
           emitJson2({ ok: true, command: "royalfilms cancel", data: { released: Number(id) } });
         else

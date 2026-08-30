@@ -55,12 +55,20 @@ export function loyaltyLogin(body: unknown) {
 
 // PaymentInfo is a FIXED voucher stub encrypted with the payments RSA-4096 key using
 // RSA-OAEP-SHA256 (node-forge in the web app; node crypto here). Verified to match.
+// The fixed voucher stub the web app encrypts as PaymentInfo (no real card data).
+export const VOUCHER_STUB = JSON.stringify({ CardNumber: "8888888888888888", CardType: "VOUCHERW", PaymentInfo: "-", PaymentValueCents: 0 });
+
+// RSA-OAEP with SHA-256 → base64. Pure and testable; the SHA-256 OAEP hash is
+// load-bearing (PKCS1 or the default SHA-1 OAEP makes the server reject the
+// order with "could not decrypt payment data").
+export function rsaOaepSha256(publicKeyPem: string, plain: string): string {
+  return publicEncrypt(
+    { key: createPublicKey(publicKeyPem), padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
+    Buffer.from(plain),
+  ).toString("base64");
+}
+
 export async function encryptPaymentInfo(fp: string): Promise<string> {
   const { publicKey } = await wwwGet<{ publicKey: string }>(`/api/payments/encryption/public-key`, fp);
-  const plain = JSON.stringify({ CardNumber: "8888888888888888", CardType: "VOUCHERW", PaymentInfo: "-", PaymentValueCents: 0 });
-  const enc = publicEncrypt(
-    { key: createPublicKey(publicKey), padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
-    Buffer.from(plain),
-  );
-  return enc.toString("base64");
+  return rsaOaepSha256(publicKey, VOUCHER_STUB);
 }

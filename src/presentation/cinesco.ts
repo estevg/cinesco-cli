@@ -45,6 +45,7 @@ import { skillsCmd } from "./skills.ts";
 import { bigText } from "./bigtext.ts";
 import { BANNERS, type Banner } from "./banners.ts";
 import { occupancyLine } from "./occupancy.ts";
+import { auditPending } from "../shared/audit.ts";
 import { login as rfLogin, requireToken as rfRequireToken } from "../infrastructure/royalfilms/auth.ts";
 import { loadSession as rfLoadSession, isExpired as rfIsExpired, decodeJwt as rfDecodeJwt } from "../infrastructure/royalfilms/session.ts";
 import { apiGet as rfApiGet } from "../infrastructure/royalfilms/api.ts";
@@ -724,7 +725,17 @@ async function runPortVerb(p: Provider, verb: string, flags: Record<string, stri
         try { title = (await new BrowseCatalog(p.catalog).movies(flags.region)).find((m) => m.id === flags.movie)?.title ?? ""; } catch { /* best effort */ }
       }
       const movie: Movie = { id: flags.movie ?? "", title };
-      const { order, link } = await purchase.checkout({ session, showtime, movie, regionId: flags.region, seats, fare, method });
+      // Audit BEFORE the reservation: if the process dies mid-checkout, the
+      // pending entry carries what was attempted (identifiers only, no secrets).
+      const audit = auditPending(`${p.id}.order`, { cinema: flags.cinema, session: flags.session, hall: flags.hall, movie: flags.movie, region: flags.region, seats: seats.map((s) => s.label) });
+      let order, link;
+      try {
+        ({ order, link } = await purchase.checkout({ session, showtime, movie, regionId: flags.region, seats, fare, method }));
+      } catch (e) {
+        audit.final("error", { message: (e as Error).message });
+        throw e;
+      }
+      audit.final("ok", { orderId: order.id, total: order.total, seats: order.seatLabels });
       out(json, cmd, [{ orderId: order.id, total: order.total, seats: order.seatLabels, paymentUrl: link.url, method: link.method }],
         [`abrí el link para pagar (el CLI no cobra): ${link.url}`], () => {
           heading("¡Orden lista para pagar!");
@@ -880,7 +891,9 @@ async function main(): Promise<number> {
         // Release a seat hold by its reserva id (frees stuck seats). DELETE /reserve/ticket-office/{id}.
         const id = positionals[2] || flags.id;
         if (!id) throw new UsageError("falta el id de reserva: cinesco royalfilms cancel <reservaId>");
-        await rfReleaseReserve(Number(id), token);
+        const audit = auditPending("royalfilms.cancel", { reservaId: Number(id) });
+        try { await rfReleaseReserve(Number(id), token); } catch (e) { audit.final("error", { message: (e as Error).message }); throw e; }
+        audit.final("ok", { released: Number(id) });
         if (json) emitJson({ ok: true, command: "royalfilms cancel", data: { released: Number(id) } });
         else note(`✓ hold ${id} liberado.`);
         return 0;

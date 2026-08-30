@@ -7,7 +7,7 @@ import { promptLine, promptSecret, promptSelect } from "../shared/prompt.ts";
 import { groupByDate, groupByCinema, funcLabel, funcLabelShort, resolveSeats, type FunctionCell } from "../infrastructure/royalfilms/wizard.ts";
 import { paintSeatMap, summarize, seatPrice, resolveSeatsOnMap, type SeatMap, type SeatCell } from "../infrastructure/royalfilms/seatmap.ts";
 import { buildReserveBody, reserve, releaseReserve } from "../infrastructure/royalfilms/reserve.ts";
-import { auditPending } from "../infrastructure/royalfilms/audit.ts";
+import { auditPending } from "../shared/audit.ts";
 import { billingFromToken, buildSessionData, getSessionId, buildCheckoutHtml } from "../infrastructure/royalfilms/checkout.ts";
 import { createSale } from "../infrastructure/royalfilms/sale.ts";
 import { homedir } from "node:os";
