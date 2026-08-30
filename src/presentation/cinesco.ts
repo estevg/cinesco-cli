@@ -477,6 +477,14 @@ async function runPurchaseWizard(provider: Provider): Promise<number> {
     errline(`${provider.name} no tiene compra por API todavía.`);
     return 2;
   }
+  // Interactive-only: never spin on prompts that can't be answered. Off-TTY,
+  // fail with a structured error pointing at the agent verbs.
+  if (!process.stdin.isTTY) {
+    const msg = `'${provider.id} buy' es interactivo — corré en una terminal, o usá los verbos agent: seats · fares · order.`;
+    if (jsonMode(false)) emitJson({ ok: false, command: `${provider.id} buy`, error: { code: "interactive-only", message: msg } });
+    else errline(msg);
+    return 2;
+  }
   const { promptLine, promptSecret } = await import("../shared/prompt.ts");
   const browse = new BrowseCatalog(provider.catalog);
   const purchase = new PurchaseTickets(provider.purchase);
@@ -868,6 +876,13 @@ async function main(): Promise<number> {
   }
 
   // Agent-ready purchase verbs (uniform, --json): seats · fares · order
+  // Interactive full-purchase wizard — same one for every chain (over the
+  // PurchasePort). Needs a TTY; agents use the seats/fares/order verbs instead.
+  if (verb === "buy") {
+    if (!p.purchase) return runProviderVerb(p, verb, positionals.slice(2), flags, json);
+    return runPurchaseWizard(p);
+  }
+
   if (verb === "seats" || verb === "fares" || verb === "order") {
     return runPortVerb(p, verb, flags, json);
   }
@@ -938,8 +953,8 @@ async function main(): Promise<number> {
     }
   }
 
-  // Royal Films auth + full-purchase verbs (reuse the royalfilms modules).
-  if (p.id === "royalfilms" && (verb === "login" || verb === "status" || verb === "buy")) {
+  // Royal Films auth verbs (buy is handled generically above).
+  if (p.id === "royalfilms" && (verb === "login" || verb === "status")) {
     if (verb === "status") {
       const s = rfLoadSession();
       const ok = !!s && !rfIsExpired(s);
@@ -949,10 +964,6 @@ async function main(): Promise<number> {
         note(ok ? `autenticado como ${s!.user.correo ?? s!.user.id}` : "no hay sesión — corré 'cinesco royalfilms login'");
       }
       return 0;
-    }
-    if (verb === "buy") {
-      // One wizard for every chain (over the PurchasePort) — no RF-specific copy.
-      return runPurchaseWizard(p);
     }
     // login
     const promptLine = (await import("../shared/prompt.ts")).promptLine;

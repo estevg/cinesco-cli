@@ -3086,6 +3086,14 @@ async function runPurchaseWizard(provider) {
     errline(`${provider.name} no tiene compra por API todav\xEDa.`);
     return 2;
   }
+  if (!process.stdin.isTTY) {
+    const msg = `'${provider.id} buy' es interactivo \u2014 corr\xE9 en una terminal, o us\xE1 los verbos agent: seats \xB7 fares \xB7 order.`;
+    if (jsonMode(false))
+      emitJson2({ ok: false, command: `${provider.id} buy`, error: { code: "interactive-only", message: msg } });
+    else
+      errline(msg);
+    return 2;
+  }
   const { promptLine: promptLine2, promptSecret: promptSecret2 } = await Promise.resolve().then(() => (init_prompt(), exports_prompt));
   const browse = new BrowseCatalog(provider.catalog);
   const purchase = new PurchaseTickets(provider.purchase);
@@ -3456,6 +3464,11 @@ tip: 'cinesco start' hace todo el flujo guiado, o 'cinesco --help' para el detal
       errline(msg);
     return 2;
   }
+  if (verb === "buy") {
+    if (!p.purchase)
+      return runProviderVerb(p, verb, positionals.slice(2), flags, json);
+    return runPurchaseWizard(p);
+  }
   if (verb === "seats" || verb === "fares" || verb === "order") {
     return runPortVerb(p, verb, flags, json);
   }
@@ -3538,7 +3551,7 @@ tip: 'cinesco start' hace todo el flujo guiado, o 'cinesco --help' para el detal
       return 1;
     }
   }
-  if (p.id === "royalfilms" && (verb === "login" || verb === "status" || verb === "buy")) {
+  if (p.id === "royalfilms" && (verb === "login" || verb === "status")) {
     if (verb === "status") {
       const s = loadSession4();
       const ok = !!s && !isExpired2(s);
@@ -3549,9 +3562,6 @@ tip: 'cinesco start' hace todo el flujo guiado, o 'cinesco --help' para el detal
         note2(ok ? `autenticado como ${s.user.correo ?? s.user.id}` : "no hay sesi\xF3n \u2014 corr\xE9 'cinesco royalfilms login'");
       }
       return 0;
-    }
-    if (verb === "buy") {
-      return runPurchaseWizard(p);
     }
     const promptLine2 = (await Promise.resolve().then(() => (init_prompt(), exports_prompt))).promptLine;
     const promptSecret2 = (await Promise.resolve().then(() => (init_prompt(), exports_prompt))).promptSecret;
