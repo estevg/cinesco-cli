@@ -3003,6 +3003,34 @@ var BANNERS = {
   cinemark: { w: 74, palette: [[214, 22, 34]], rows: ["00111110001110011000011001111111001110001110000011100001111111000111001110", "01111111001110011100111001111111001111001110000111100001111111100111011110", "11110111001110011110111001110000001111011110000111100001110011100111011100", "11100000001110011110111001110000001111011110000111110001110011100111111000", "11100000001110011111111001111111001111011110001110110001111111100111111000", "11100000001110011011111001111111001101111110001100110001111111000111111100", "11100011001110011001111001110000001101110110001111111001110111000111011100", "11100111001110011001111001110000001101110110011111111001110111000111001110", "01111111001110011000111001111111001101110110011100011001110011100111001110", "00111110001110011000111001111111001100110110011000011101110011100111000111"] }
 };
 
+// src/presentation/occupancy.ts
+function soldFraction(free, total) {
+  if (!Number.isFinite(total) || total <= 0)
+    return 0;
+  const sold = Math.min(Math.max(total - free, 0), total);
+  return sold / total;
+}
+function occupancyWord(sold) {
+  if (sold >= 1)
+    return "AGOTADA";
+  if (sold >= 0.9)
+    return "casi agotada";
+  if (sold >= 0.6)
+    return "llena";
+  if (sold >= 0.25)
+    return "media";
+  return "vacía";
+}
+function occupancyBar(sold, width = 12) {
+  const filled = Math.round(Math.min(Math.max(sold, 0), 1) * width);
+  return "█".repeat(filled) + "░".repeat(width - filled);
+}
+function occupancyLine(free, total) {
+  const sold = soldFraction(free, total);
+  const pct = Math.round(sold * 100);
+  return { sold, word: occupancyWord(sold), text: `${occupancyBar(sold)}  ${pct}% ocupada · ${free} de ${total} libres` };
+}
+
 // src/infrastructure/royalfilms/auth.ts
 async function login2(email, password) {
   const token = await apiPost(`/auth/login`, { email, password });
@@ -3382,13 +3410,25 @@ async function runProviderVerb(p, verb, pos, flags, json) {
       }
       out(json, cmd, data, steps, () => {
         heading2(`${p.name} \xB7 funciones de ${movieId}`);
-        table2(data, [
-          { key: "id", label: "Funci\xF3n", color: style2.cyan },
-          { key: "date", label: "Fecha" },
-          { key: "time", label: "Hora" },
-          { key: "cinemaId", label: "Cine" },
-          { key: "hall", label: "Sala" }
-        ]);
+        const byCinema = new Map;
+        for (const s of data) {
+          const k = s.cinemaName || `cine ${s.cinemaId}`;
+          if (!byCinema.has(k))
+            byCinema.set(k, []);
+          byCinema.get(k).push(s);
+        }
+        for (const [cinema, fns] of byCinema) {
+          process.stderr.write(style2.bold(style2.cyan(`
+  ${cinema}
+`)));
+          table2(fns, [
+            { key: "date", label: "Fecha" },
+            { key: "time", label: "Hora", color: style2.bold },
+            { key: "format", label: "Formato" },
+            { key: "hall", label: "Sala" },
+            { key: "id", label: "Funci\xF3n", color: style2.dim }
+          ]);
+        }
       });
     } else if (verb === "regions") {
       if (!p.catalog.listRegions)
@@ -3429,8 +3469,16 @@ function out(json, command, data, nextSteps, human) {
     human();
     if (nextSteps.length)
       note2(`
-siguiente: ` + nextSteps.map((s) => style2.dim(s)).join("  \xB7  "));
+siguiente: ` + nextSteps.map((s) => style2.dim(runnable(s))).join("  \xB7  "));
   }
+}
+function runnable(step) {
+  return /^(cinesco|abr\u00ED|open|repet\u00ED|para )/.test(step) ? step : `cinesco ${step}`;
+}
+function occLine(free, total) {
+  const o = occupancyLine(free, total);
+  const col = o.sold >= 0.9 ? style2.red : o.sold >= 0.6 ? style2.yellow : style2.green;
+  return `${o.text} \xB7 ${col(o.word)}`;
 }
 async function startWizard() {
   if (!process.stdin.isTTY) {
@@ -3541,7 +3589,7 @@ async function runPurchaseWizard(provider) {
   const allSeats = map.rows.flatMap((r) => r.seats);
   const perSeatPriced = allSeats.some((s) => s.priceCents != null);
   heading2(`${movie.title} \xB7 ${fn.date} ${fn.time ?? ""} \xB7 ${fn.cinemaName}`);
-  note2(`${allSeats.filter((s) => s.available).length}/${allSeats.length} butacas libres`);
+  note2(occLine(allSeats.filter((s) => s.available).length, allSeats.length));
   paintSeatMap2(map);
   let fare;
   if (!perSeatPriced) {
@@ -3653,7 +3701,7 @@ async function runPortVerb(p, verb, flags, json) {
       const free = seats.filter((x) => x.available).map((x) => ({ label: x.label, priceCents: x.priceCents ?? null, special: !!x.special }));
       out(json, cmd, free, [`${p.id} order --cinema ${flags.cinema} --session ${flags.session} --seats <labels>`], () => {
         heading2(`${p.name} \xB7 butacas libres`);
-        note2(`${free.length}/${seats.length} libres`);
+        note2(occLine(free.length, seats.length));
         paintSeatMap2(map);
       });
       return 0;
@@ -4020,7 +4068,7 @@ tip: 'cinesco start' hace todo el flujo guiado (eleg\xED cadena y segu\xED).`));
         emitJson2({ ok: true, command: "cinecolombia seatmap", data: s });
       else {
         heading2(`Funci\xF3n ${showtimeId}`);
-        note2(`${s.available.length}/${s.total} butacas libres${s.isSoldOut ? " (AGOTADA)" : ""} \xB7 precio ${s.precioDefault ? "$" + s.precioDefault.toLocaleString("es-CO") : "\u2014"}`);
+        note2(occLine(s.available.length, s.total) + (s.precioDefault ? " \xB7 precio $" + s.precioDefault.toLocaleString("es-CO") : ""));
         paintSeats(s.seats);
         note2(`
 reservar: cinesco cinecolombia reserve <siteId> ` + showtimeId + " --seats <seatId,seatId>");

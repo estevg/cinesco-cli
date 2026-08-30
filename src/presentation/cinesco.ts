@@ -44,6 +44,7 @@ import { doctorCmd } from "./doctor.ts";
 import { skillsCmd } from "./skills.ts";
 import { bigText } from "./bigtext.ts";
 import { BANNERS, type Banner } from "./banners.ts";
+import { occupancyLine } from "./occupancy.ts";
 import { login as rfLogin, requireToken as rfRequireToken } from "../infrastructure/royalfilms/auth.ts";
 import { loadSession as rfLoadSession, isExpired as rfIsExpired, decodeJwt as rfDecodeJwt } from "../infrastructure/royalfilms/session.ts";
 import { apiGet as rfApiGet } from "../infrastructure/royalfilms/api.ts";
@@ -317,13 +318,24 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
       }
       out(json, cmd, data, steps, () => {
         heading(`${p.name} · funciones de ${movieId}`);
-        table(data, [
-          { key: "id", label: "Función", color: style.cyan },
-          { key: "date", label: "Fecha" },
-          { key: "time", label: "Hora" },
-          { key: "cinemaId", label: "Cine" },
-          { key: "hall", label: "Sala" },
-        ]);
+        // The cinema repeats down every row — promote it to a heading and let
+        // the rows carry only what varies (repetition is a heading, human-output).
+        const byCinema = new Map<string, typeof data>();
+        for (const s of data) {
+          const k = s.cinemaName || `cine ${s.cinemaId}`;
+          if (!byCinema.has(k)) byCinema.set(k, []);
+          byCinema.get(k)!.push(s);
+        }
+        for (const [cinema, fns] of byCinema) {
+          process.stderr.write(style.bold(style.cyan(`\n  ${cinema}\n`)));
+          table(fns, [
+            { key: "date", label: "Fecha" },
+            { key: "time", label: "Hora", color: style.bold },
+            { key: "format", label: "Formato" },
+            { key: "hall", label: "Sala" },
+            { key: "id", label: "Función", color: style.dim },
+          ]);
+        }
       });
     } else if (verb === "regions") {
       if (!p.catalog.listRegions) throw new UsageError(`${p.name} no maneja regiones`);
@@ -356,8 +368,22 @@ function out(json: boolean, command: string, data: unknown[], nextSteps: string[
   if (json) emitJson({ ok: true, command, count: Array.isArray(data) ? data.length : undefined, data, nextSteps });
   else {
     human();
-    if (nextSteps.length) note("\nsiguiente: " + nextSteps.map((s) => style.dim(s)).join("  ·  "));
+    // Emit a runnable command, not a fragment the reader has to prefix (human-output).
+    if (nextSteps.length) note("\nsiguiente: " + nextSteps.map((s) => style.dim(runnable(s))).join("  ·  "));
   }
+}
+
+// Prefix a next-step with `cinesco ` so it pastes and runs as-is.
+function runnable(step: string): string {
+  return /^(cinesco|abrí|open|repetí|para )/.test(step) ? step : `cinesco ${step}`;
+}
+
+// A seat-availability line the eye reads correctly: a bar that grows with what's
+// sold + a word, coloured by how full the room is (green = room, red = nearly out).
+function occLine(free: number, total: number): string {
+  const o = occupancyLine(free, total);
+  const col = o.sold >= 0.9 ? style.red : o.sold >= 0.6 ? style.yellow : style.green;
+  return `${o.text} · ${col(o.word)}`;
 }
 
 // Interactive: pick a chain, then explore its browse surface.
@@ -486,7 +512,7 @@ async function runPurchaseWizard(provider: Provider): Promise<number> {
   const allSeats = map.rows.flatMap((r) => r.seats);
   const perSeatPriced = allSeats.some((s) => s.priceCents != null);
   heading(`${movie.title} · ${fn.date} ${fn.time ?? ""} · ${fn.cinemaName}`);
-  note(`${allSeats.filter((s) => s.available).length}/${allSeats.length} butacas libres`);
+  note(occLine(allSeats.filter((s) => s.available).length, allSeats.length));
   paintSeatMap(map);
 
   // boleta (solo si la cadena cobra por tipo de boleta, no por silla)
@@ -604,7 +630,7 @@ async function runPortVerb(p: Provider, verb: string, flags: Record<string, stri
       const free = seats.filter((x) => x.available).map((x) => ({ label: x.label, priceCents: x.priceCents ?? null, special: !!x.special }));
       out(json, cmd, free, [`${p.id} order --cinema ${flags.cinema} --session ${flags.session} --seats <labels>`], () => {
         heading(`${p.name} · butacas libres`);
-        note(`${free.length}/${seats.length} libres`);
+        note(occLine(free.length, seats.length));
         paintSeatMap(map);
       });
       return 0;
@@ -953,7 +979,7 @@ async function main(): Promise<number> {
       if (json) emitJson({ ok: true, command: "cinecolombia seatmap", data: s });
       else {
         heading(`Función ${showtimeId}`);
-        note(`${s.available.length}/${s.total} butacas libres${s.isSoldOut ? " (AGOTADA)" : ""} · precio ${s.precioDefault ? "$" + s.precioDefault.toLocaleString("es-CO") : "—"}`);
+        note(occLine(s.available.length, s.total) + (s.precioDefault ? " · precio $" + s.precioDefault.toLocaleString("es-CO") : ""));
         ccPaint(s.seats);
         note("\nreservar: cinesco cinecolombia reserve <siteId> " + showtimeId + " --seats <seatId,seatId>");
       }
