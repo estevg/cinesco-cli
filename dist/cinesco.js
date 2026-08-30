@@ -3006,7 +3006,8 @@ async function runProviderVerb(p, verb, pos, flags, json) {
     if (verb === "cinemas") {
       await assertRegion(p, region);
       const data = await p.catalog.listCinemas(region);
-      out(json, cmd, data, ["<provider> movies [region]"], () => {
+      const reg = region ?? data[0]?.regionId;
+      out(json, cmd, data, reg ? [`${p.id} movies ${reg}`] : [], () => {
         heading2(`${p.name} \xB7 cines${region ? ` (region ${region})` : ""}`);
         table2(data, [{ key: "id", label: "ID", color: style2.cyan }, { key: "name", label: "Cine" }]);
       });
@@ -3084,9 +3085,10 @@ async function runProviderVerb(p, verb, pos, flags, json) {
       if (!p.catalog.listRegions)
         throw new UsageError(`${p.name} no maneja regiones`);
       const data = await p.catalog.listRegions();
-      out(json, cmd, data, [`${p.id} cinemas <region>`], () => {
+      const steps = data[0] ? [`${p.id} cinemas ${data[0].id}`, `${p.id} movies ${data[0].id}`] : [];
+      out(json, cmd, data, steps, () => {
         heading2(`${p.name} \xB7 ciudades`);
-        table2(data, [{ key: "id", label: "ID", color: style2.cyan }, { key: "name", label: "Ciudad" }]);
+        table2(data, [{ key: "name", label: "Ciudad" }, { key: "id", label: "ID (usalo en los otros comandos)", color: style2.cyan }]);
       });
     } else {
       throw new UsageError(`verbo desconocido: ${verb} (prob\xE1 cinemas | movies | showtimes | regions)`);

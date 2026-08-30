@@ -326,7 +326,8 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
     if (verb === "cinemas") {
       await assertRegion(p, region);
       const data = await p.catalog.listCinemas(region);
-      out(json, cmd, data, ["<provider> movies [region]"], () => {
+      const reg = region ?? (data[0] as { regionId?: string })?.regionId;
+      out(json, cmd, data, reg ? [`${p.id} movies ${reg}`] : [], () => {
         heading(`${p.name} · cines${region ? ` (region ${region})` : ""}`);
         table(data, [{ key: "id", label: "ID", color: style.cyan }, { key: "name", label: "Cine" }]);
       });
@@ -403,9 +404,11 @@ async function runProviderVerb(p: Provider, verb: string, pos: string[], flags: 
     } else if (verb === "regions") {
       if (!p.catalog.listRegions) throw new UsageError(`${p.name} no maneja regiones`);
       const data = await p.catalog.listRegions();
-      out(json, cmd, data, [`${p.id} cinemas <region>`], () => {
+      // Emit a runnable example (first city's id), not a "<region>" placeholder.
+      const steps = data[0] ? [`${p.id} cinemas ${data[0].id}`, `${p.id} movies ${data[0].id}`] : [];
+      out(json, cmd, data, steps, () => {
         heading(`${p.name} · ciudades`);
-        table(data, [{ key: "id", label: "ID", color: style.cyan }, { key: "name", label: "Ciudad" }]);
+        table(data, [{ key: "name", label: "Ciudad" }, { key: "id", label: "ID (usalo en los otros comandos)", color: style.cyan }]);
       });
     } else {
       throw new UsageError(`verbo desconocido: ${verb} (probá cinemas | movies | showtimes | regions)`);
