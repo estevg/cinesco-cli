@@ -7,6 +7,7 @@ import type { PurchasePort, ReserveInput, PayInput } from "../../domain/ports.ts
 import type { Session, Showtime, SeatMap, Seat, Fare, Order, PaymentLink, PaymentMethod, Member } from "../../domain/entities.ts";
 import { AuthError, PendingOrderError, NotAvailableError } from "../../domain/errors.ts";
 import { coreGet, wwwGet, wwwPost, corePost, vista, ordersApi, CO, loyaltyLogin, encryptPaymentInfo } from "./client.ts";
+import { saveCinemark, loadCinemark, cinemarkExpired } from "./session.ts";
 
 type Row = Record<string, any>;
 interface Cred { token: string; fingerprint: string; userSessionId: string }
@@ -83,8 +84,19 @@ export const cinemarkPurchase: PurchasePort = {
       phone: m.MobilePhone ? String(m.MobilePhone) : m.HomePhone ? String(m.HomePhone) : undefined,
       documentId: m.NationalID ? String(m.NationalID) : undefined,
     };
-    void jwtExp; // token TTL ~5min; a fresh login runs per purchase
+    // The LoyaltySessionToken expires in ~5min and isn't used past login; the
+    // fingerprint (~24h) is what the purchase calls authenticate with, so persist
+    // that for reuse (like Royal Films' JWT).
+    saveCinemark({ fingerprint, member, exp: jwtExp(fingerprint) });
     return { provider: "cinemark", member, credentials: { token: res.LoyaltySessionToken, fingerprint, userSessionId: usid } };
+  },
+
+  // Reuse the saved fingerprint (no network, no password); mint a fresh
+  // userSessionId for the new order flow.
+  async restore(): Promise<Session | null> {
+    const s = loadCinemark();
+    if (!s || cinemarkExpired(s)) return null;
+    return { provider: "cinemark", member: s.member, credentials: { token: "", fingerprint: s.fingerprint, userSessionId: newUserSessionId() } };
   },
 
   async getSeatMap(st: Showtime, _session?: Session): Promise<SeatMap> {

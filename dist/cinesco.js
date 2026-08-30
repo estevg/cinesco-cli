@@ -1392,6 +1392,33 @@ var cinemarkCatalog = {
   }
 };
 
+// src/infrastructure/cinemark/session.ts
+import { homedir as homedir4 } from "node:os";
+import { join as join5 } from "node:path";
+import { mkdirSync as mkdirSync3, writeFileSync as writeFileSync4, readFileSync as readFileSync3, rmSync as rmSync2, existsSync as existsSync4, chmodSync as chmodSync3 } from "node:fs";
+var DIR3 = join5(homedir4(), ".cinesco");
+var FILE3 = join5(DIR3, "cinemark-session.json");
+function saveCinemark(s) {
+  mkdirSync3(DIR3, { recursive: true });
+  writeFileSync4(FILE3, JSON.stringify(s, null, 2), { mode: 384 });
+  chmodSync3(FILE3, 384);
+  return s;
+}
+function loadCinemark() {
+  if (!existsSync4(FILE3))
+    return null;
+  try {
+    return JSON.parse(readFileSync3(FILE3, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function cinemarkExpired(s, skewSeconds = 60) {
+  if (!s.exp)
+    return false;
+  return Date.now() / 1000 >= s.exp - skewSeconds;
+}
+
 // src/infrastructure/cinemark/purchase.ts
 var cred2 = (s) => s.credentials;
 var PLATFORM = { AppName: "Cinemark Colombia", Os: "Web application", Version: "0.1.0", ClientId: CO.clientId, CompanyId: CO.companyId };
@@ -1482,7 +1509,14 @@ var cinemarkPurchase = {
       phone: m.MobilePhone ? String(m.MobilePhone) : m.HomePhone ? String(m.HomePhone) : undefined,
       documentId: m.NationalID ? String(m.NationalID) : undefined
     };
+    saveCinemark({ fingerprint, member, exp: jwtExp(fingerprint) });
     return { provider: "cinemark", member, credentials: { token: res.LoyaltySessionToken, fingerprint, userSessionId: usid } };
+  },
+  async restore() {
+    const s = loadCinemark();
+    if (!s || cinemarkExpired(s))
+      return null;
+    return { provider: "cinemark", member: s.member, credentials: { token: "", fingerprint: s.fingerprint, userSessionId: newUserSessionId() } };
   },
   async getSeatMap(st, _session) {
     const d = await coreGet(vista(`/cinemas/${st.cinemaId}/sessions/${st.id}/seat-plan`));
@@ -1721,14 +1755,14 @@ function table2(rows, columns) {
 init_prompt();
 
 // src/infrastructure/cinecolombia/cinecolombia-token.ts
-import { homedir as homedir4 } from "node:os";
-import { join as join5 } from "node:path";
-import { mkdirSync as mkdirSync3, writeFileSync as writeFileSync4, existsSync as existsSync4, readFileSync as readFileSync3, chmodSync as chmodSync3 } from "node:fs";
-var DIR3 = join5(homedir4(), ".cinesco");
-var FILE3 = join5(DIR3, "cinecolombia-session.json");
-var LEGACY_TOKEN_FILE2 = join5(DIR3, "cinecolombia-token.txt");
+import { homedir as homedir5 } from "node:os";
+import { join as join6 } from "node:path";
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync5, existsSync as existsSync5, readFileSync as readFileSync4, chmodSync as chmodSync4 } from "node:fs";
+var DIR4 = join6(homedir5(), ".cinesco");
+var FILE4 = join6(DIR4, "cinecolombia-session.json");
+var LEGACY_TOKEN_FILE2 = join6(DIR4, "cinecolombia-token.txt");
 var PORT2 = 9223;
-var PROFILE2 = join5(homedir4(), ".cinesco-chrome");
+var PROFILE2 = join6(homedir5(), ".cinesco-chrome");
 var MEMBER_COOKIE2 = "vista-loyalty-member-authentication-token";
 function sh2(cmd, args, timeoutMs = 20000) {
   return runSync(cmd, args, timeoutMs);
@@ -1774,13 +1808,13 @@ function tokenExp2(token) {
   }
 }
 function loadSession3() {
-  if (existsSync4(FILE3)) {
+  if (existsSync5(FILE4)) {
     try {
-      const s = JSON.parse(readFileSync3(FILE3, "utf8"));
+      const s = JSON.parse(readFileSync4(FILE4, "utf8"));
       return { ...s, expired: s.exp > 0 && Date.now() / 1000 >= s.exp - 30 };
     } catch {}
   }
-  const envTok = process.env.CINECO_TOKEN || (existsSync4(LEGACY_TOKEN_FILE2) ? readFileSync3(LEGACY_TOKEN_FILE2, "utf8").trim() : "");
+  const envTok = process.env.CINECO_TOKEN || (existsSync5(LEGACY_TOKEN_FILE2) ? readFileSync4(LEGACY_TOKEN_FILE2, "utf8").trim() : "");
   if (envTok) {
     const exp = tokenExp2(envTok);
     return { appToken: envTok, exp, expired: exp > 0 && Date.now() / 1000 >= exp - 30 };
@@ -1788,9 +1822,9 @@ function loadSession3() {
   return null;
 }
 function saveSession3(s) {
-  mkdirSync3(DIR3, { recursive: true });
-  writeFileSync4(FILE3, JSON.stringify(s, null, 2), { mode: 384 });
-  chmodSync3(FILE3, 384);
+  mkdirSync4(DIR4, { recursive: true });
+  writeFileSync5(FILE4, JSON.stringify(s, null, 2), { mode: 384 });
+  chmodSync4(FILE4, 384);
 }
 async function acquireSession2(requireLogin, log2) {
   if (sh2("which", ["agent-browser"]).code !== 0) {
@@ -1847,7 +1881,7 @@ async function acquireSession2(requireLogin, log2) {
     exp: tokenExp2(appToken)
   };
   saveSession3(session);
-  return { saved: true, exp: session.exp, loggedIn: Boolean(memberCookie), file: FILE3 };
+  return { saved: true, exp: session.exp, loggedIn: Boolean(memberCookie), file: FILE4 };
 }
 async function orderStatusViaBrowser(orderId, log2) {
   await ensureBrowser2(log2);
@@ -2155,6 +2189,39 @@ function paintSeats(seats, chosen = new Set) {
 var PAYMENT_URL = "https://multiplex.cinecolombia.com/order/payment?deliveryMode=Pickup";
 function paymentUrl() {
   return PAYMENT_URL;
+}
+
+// src/infrastructure/cinemark/index.ts
+var cinemark2 = {
+  id: "cinemark",
+  name: "Cinemark",
+  country: "Colombia",
+  auth: "direct",
+  notes: "Vista via api.cinemark-core.com. Todo headless (browse, login, compra). Pago = PSE/PayU.",
+  capabilities: { browse: true, seatmap: true, reserve: true, checkout: true },
+  catalog: cinemarkCatalog,
+  purchase: cinemarkPurchase
+};
+
+// src/infrastructure/cinemark/session.ts
+import { homedir as homedir6 } from "node:os";
+import { join as join7 } from "node:path";
+import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync6, readFileSync as readFileSync5, rmSync as rmSync3, existsSync as existsSync6, chmodSync as chmodSync5 } from "node:fs";
+var DIR5 = join7(homedir6(), ".cinesco");
+var FILE5 = join7(DIR5, "cinemark-session.json");
+function loadCinemark2() {
+  if (!existsSync6(FILE5))
+    return null;
+  try {
+    return JSON.parse(readFileSync5(FILE5, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function cinemarkExpired2(s, skewSeconds = 60) {
+  if (!s.exp)
+    return false;
+  return Date.now() / 1000 >= s.exp - skewSeconds;
 }
 
 // src/application/purchase.ts
@@ -2511,23 +2578,23 @@ function occLine(free, total) {
 }
 
 // src/shared/audit.ts
-import { homedir as homedir5 } from "node:os";
-import { join as join6 } from "node:path";
-import { mkdirSync as mkdirSync4, appendFileSync, chmodSync as chmodSync4 } from "node:fs";
+import { homedir as homedir7 } from "node:os";
+import { join as join8 } from "node:path";
+import { mkdirSync as mkdirSync6, appendFileSync, chmodSync as chmodSync6 } from "node:fs";
 function dir() {
-  return process.env.CINESCO_AUDIT_DIR || join6(homedir5(), ".cinesco", "audit");
+  return process.env.CINESCO_AUDIT_DIR || join8(homedir7(), ".cinesco", "audit");
 }
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
 function write(record) {
-  const DIR4 = dir();
-  mkdirSync4(DIR4, { recursive: true });
-  const file = join6(DIR4, `${today()}.jsonl`);
+  const DIR6 = dir();
+  mkdirSync6(DIR6, { recursive: true });
+  const file = join8(DIR6, `${today()}.jsonl`);
   appendFileSync(file, JSON.stringify(record) + `
 `, { mode: 384 });
   try {
-    chmodSync4(file, 384);
+    chmodSync6(file, 384);
   } catch {}
 }
 var counter = 0;
@@ -2566,11 +2633,11 @@ function requireToken() {
 }
 
 // src/infrastructure/royalfilms/session.ts
-import { homedir as homedir6 } from "node:os";
-import { join as join7 } from "node:path";
-import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync5, readFileSync as readFileSync4, rmSync as rmSync2, existsSync as existsSync5, chmodSync as chmodSync5 } from "node:fs";
-var DIR4 = join7(homedir6(), ".royalfilms");
-var FILE4 = join7(DIR4, "session.json");
+import { homedir as homedir8 } from "node:os";
+import { join as join9 } from "node:path";
+import { mkdirSync as mkdirSync7, writeFileSync as writeFileSync7, readFileSync as readFileSync6, rmSync as rmSync4, existsSync as existsSync7, chmodSync as chmodSync7 } from "node:fs";
+var DIR6 = join9(homedir8(), ".royalfilms");
+var FILE6 = join9(DIR6, "session.json");
 function decodeJwt2(token) {
   const parts = token.split(".");
   if (parts.length !== 3)
@@ -2581,10 +2648,10 @@ function decodeJwt2(token) {
   return JSON.parse(json);
 }
 function loadSession4() {
-  if (!existsSync5(FILE4))
+  if (!existsSync7(FILE6))
     return null;
   try {
-    return JSON.parse(readFileSync4(FILE4, "utf8"));
+    return JSON.parse(readFileSync6(FILE6, "utf8"));
   } catch {
     return null;
   }
@@ -2811,7 +2878,7 @@ var SCHEMA_COMMANDS = [
   { group: "Explorar", command: "<provider> movies", args: ["[region]", "[--filter <texto>]"], summary: "Cartelera (filtrable; resume si es larga)" },
   { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|ma\xF1ana|viernes]", "[--occupancy]"], summary: "Funciones (agrupadas por cine; --occupancy pinta la ocupaci\xF3n por funci\xF3n)" },
   { group: "Explorar", command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas a la vez" },
-  { group: "Sesi\xF3n", command: "<provider> login", args: [], summary: "Guardar sesi\xF3n (Royal Films, Cine Colombia). Cinemark entra por compra" },
+  { group: "Sesi\xF3n", command: "<provider> login", args: [], summary: "Guardar sesi\xF3n (las 3 cadenas). Se reusa en buy/order" },
   { group: "Sesi\xF3n", command: "<provider> status", args: [], summary: "\xBFHay sesi\xF3n activa y de qui\xE9n?" },
   { group: "Comprar", command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
   { group: "Comprar", command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vac\xEDo si la funci\xF3n tiene tarifa \xFAnica)" },
@@ -2858,7 +2925,7 @@ tip: 'cinesco <cadena> login' guarda tu sesi\xF3n; luego seats/order la reusan s
   }
 }
 function providerHelp(p, json) {
-  const hasSession = p.id === "royalfilms" || p.id === "cinecolombia";
+  const hasSession = p.id === "royalfilms" || p.id === "cinecolombia" || p.id === "cinemark";
   const cmds = SCHEMA_COMMANDS.filter((c) => c.command.startsWith("<provider>") || c.command === "search" || c.command === "start").filter((c) => hasSession || !/ (login|status)$/.test(c.command)).filter((c) => p.id === "royalfilms" || !/ pending$/.test(c.command)).filter((c) => p.id === "royalfilms" || p.id === "cinecolombia" || !/ cancel$/.test(c.command)).map((c) => ({ ...c, command: c.command.replace("<provider>", p.id) }));
   if (json) {
     emitJson2({ ok: true, command: `${p.id} help`, data: { id: p.id, name: p.name, auth: p.auth, notes: p.notes, capabilities: p.capabilities, commands: cmds } });
@@ -3586,6 +3653,45 @@ tip: 'cinesco start' hace todo el flujo guiado, o 'cinesco --help' para el detal
       const m = e.message;
       if (json)
         emitJson2({ ok: false, command: "royalfilms login", error: { code: "login-failed", message: m } });
+      else
+        errline(m);
+      return 1;
+    }
+  }
+  if (p.id === "cinemark" && (verb === "login" || verb === "status")) {
+    if (verb === "status") {
+      const s = loadCinemark2();
+      const ok = !!s && !cinemarkExpired2(s);
+      if (json)
+        emitJson2({ ok: true, command: "cinemark status", data: ok ? { authenticated: true, member: s.member } : { authenticated: false } });
+      else {
+        heading2("Cinemark \xB7 sesi\xF3n");
+        note2(ok ? `autenticado como ${s.member.email ?? s.member.name ?? s.member.id}` : "no hay sesi\xF3n \u2014 corr\xE9 'cinesco cinemark login'");
+      }
+      return 0;
+    }
+    const { promptLine: promptLine2, promptSecret: promptSecret2 } = await Promise.resolve().then(() => (init_prompt(), exports_prompt));
+    const email = flags.email || process.env.CINEMARK_EMAIL || await promptLine2("correo: ") || "";
+    const password = flags.password || process.env.CINEMARK_PASSWORD || await promptSecret2("clave: ") || "";
+    if (!email || !password) {
+      const msg = "faltan credenciales (--email/--password, CINEMARK_EMAIL/CINEMARK_PASSWORD, o terminal interactiva)";
+      if (json)
+        emitJson2({ ok: false, command: "cinemark login", error: { code: "no-credentials", message: msg } });
+      else
+        errline(msg);
+      return 2;
+    }
+    try {
+      const sess = await cinemark2.purchase.login({ email: email.trim(), password });
+      if (json)
+        emitJson2({ ok: true, command: "cinemark login", data: { member: sess.member } });
+      else
+        note2(`sesi\xF3n iniciada como ${sess.member?.email ?? sess.member?.name ?? "socio"}`);
+      return 0;
+    } catch (e) {
+      const m = e.message;
+      if (json)
+        emitJson2({ ok: false, command: "cinemark login", error: { code: "login-failed", message: m } });
       else
         errline(m);
       return 1;

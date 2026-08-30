@@ -35,6 +35,7 @@ async function ccWaitPayment(orderId: string, log: (s: string) => void): Promise
   return "timeout";
 }
 import { cinemark as cmkProvider } from "../infrastructure/cinemark/index.ts";
+import { loadCinemark as cmkLoadSession, cinemarkExpired as cmkExpired } from "../infrastructure/cinemark/session.ts";
 import { PurchaseTickets } from "../application/purchase.ts";
 import { BrowseCatalog } from "../application/browse.ts";
 import { resolveSeats as cmkResolve, defaultFare } from "../application/seats.ts";
@@ -193,7 +194,7 @@ const SCHEMA_COMMANDS: CommandRow[] = [
   { group: "Explorar", command: "<provider> movies", args: ["[region]", "[--filter <texto>]"], summary: "Cartelera (filtrable; resume si es larga)" },
   { group: "Explorar", command: "<provider> showtimes", args: ["movieId", "[region]", "[--date hoy|mañana|viernes]", "[--occupancy]"], summary: "Funciones (agrupadas por cine; --occupancy pinta la ocupación por función)" },
   { group: "Explorar", command: "search", args: ["<pelicula>", "--city"], summary: "Buscar una peli en las 3 cadenas a la vez" },
-  { group: "Sesión", command: "<provider> login", args: [], summary: "Guardar sesión (Royal Films, Cine Colombia). Cinemark entra por compra" },
+  { group: "Sesión", command: "<provider> login", args: [], summary: "Guardar sesión (las 3 cadenas). Se reusa en buy/order" },
   { group: "Sesión", command: "<provider> status", args: [], summary: "¿Hay sesión activa y de quién?" },
   { group: "Comprar", command: "<provider> seats", args: ["--cinema", "--session", "--hall"], summary: "Butacas libres + precio por butaca (--hall lo pide Royal Films)" },
   { group: "Comprar", command: "<provider> fares", args: ["--cinema", "--session", "--hall"], summary: "Tipos de boleta + precio (vacío si la función tiene tarifa única)" },
@@ -242,7 +243,7 @@ function schemaCmd(json: boolean): void {
 // Same surface as the global schema, scoped to one chain (id substituted,
 // session verbs dropped for chains without a saved session).
 function providerHelp(p: Provider, json: boolean): number {
-  const hasSession = p.id === "royalfilms" || p.id === "cinecolombia";
+  const hasSession = p.id === "royalfilms" || p.id === "cinecolombia" || p.id === "cinemark";
   const cmds = SCHEMA_COMMANDS
     .filter((c) => c.command.startsWith("<provider>") || c.command === "search" || c.command === "start")
     .filter((c) => hasSession || !/ (login|status)$/.test(c.command))
@@ -984,6 +985,37 @@ async function main(): Promise<number> {
     } catch (e) {
       const m = (e as Error).message;
       if (json) emitJson({ ok: false, command: "royalfilms login", error: { code: "login-failed", message: m } });
+      else errline(m);
+      return 1;
+    }
+  }
+
+  // Cinemark session (persists the 24h device fingerprint so buy/order reuse it).
+  if (p.id === "cinemark" && (verb === "login" || verb === "status")) {
+    if (verb === "status") {
+      const s = cmkLoadSession();
+      const ok = !!s && !cmkExpired(s);
+      if (json) emitJson({ ok: true, command: "cinemark status", data: ok ? { authenticated: true, member: s!.member } : { authenticated: false } });
+      else { heading("Cinemark · sesión"); note(ok ? `autenticado como ${s!.member.email ?? s!.member.name ?? s!.member.id}` : "no hay sesión — corré 'cinesco cinemark login'"); }
+      return 0;
+    }
+    const { promptLine, promptSecret } = await import("../shared/prompt.ts");
+    const email = flags.email || process.env.CINEMARK_EMAIL || (await promptLine("correo: ")) || "";
+    const password = flags.password || process.env.CINEMARK_PASSWORD || (await promptSecret("clave: ")) || "";
+    if (!email || !password) {
+      const msg = "faltan credenciales (--email/--password, CINEMARK_EMAIL/CINEMARK_PASSWORD, o terminal interactiva)";
+      if (json) emitJson({ ok: false, command: "cinemark login", error: { code: "no-credentials", message: msg } });
+      else errline(msg);
+      return 2;
+    }
+    try {
+      const sess = await cmkProvider.purchase!.login({ email: email.trim(), password });
+      if (json) emitJson({ ok: true, command: "cinemark login", data: { member: sess.member } });
+      else note(`sesión iniciada como ${sess.member?.email ?? sess.member?.name ?? "socio"}`);
+      return 0;
+    } catch (e) {
+      const m = (e as Error).message;
+      if (json) emitJson({ ok: false, command: "cinemark login", error: { code: "login-failed", message: m } });
       else errline(m);
       return 1;
     }
