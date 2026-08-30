@@ -2,15 +2,25 @@
 import type { Seat, SeatMap, Fare } from "../domain/entities.ts";
 
 export function resolveSeats(labels: string[], map: SeatMap): { seats: Seat[]; problems: string[] } {
-  const byLabel = new Map<string, Seat>();
-  for (const r of map.rows) for (const s of r.seats) byLabel.set(s.label.toUpperCase(), s);
+  // Index by the seat's own label, by row+number (what the map paints), padded
+  // and bare, and by id — so whatever the reader sees resolves, even in halls
+  // where the label and the displayed number differ.
+  const byKey = new Map<string, Seat>();
+  const add = (k: string, s: Seat) => { if (k) byKey.set(k.toUpperCase(), s); };
+  for (const r of map.rows) for (const s of r.seats) {
+    const num = s.label.match(/\d+/)?.[0] ?? "";
+    add(s.label, s);
+    add(`${r.name}${num}`, s);
+    add(`${r.name}${num.padStart(2, "0")}`, s);
+    add(s.id, s);
+  }
   const seats: Seat[] = [];
   const problems: string[] = [];
   for (const raw of labels) {
-    const tok = raw.trim().toUpperCase();
+    const tok = raw.trim();
     if (!tok) continue;
-    const s = byLabel.get(tok);
-    if (!s) problems.push(`"${raw}" no existe en esta sala`);
+    const s = byKey.get(tok.toUpperCase());
+    if (!s) problems.push(`"${raw.trim()}" no existe en esta sala`);
     else if (!s.available) problems.push(`${s.label} ya está ocupada`);
     else if (seats.some((x) => x.label === s.label)) continue; // dedupe
     else seats.push(s);

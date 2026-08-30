@@ -27,7 +27,9 @@ export function paintSeatMap(map: SeatMap, selected: Set<string> = new Set()): v
         line += " ".repeat(CELL);
         continue;
       }
-      const n = (s.id.match(/\d+/)?.[0] ?? s.id).padStart(2, "0").slice(-2);
+      // Show the number from the seat's LABEL (what you type), not its internal
+      // id — the row letter + this number is the token the resolver expects.
+      const n = (s.label.match(/\d+/)?.[0] ?? s.id.match(/\d+/)?.[0] ?? "?").padStart(2, "0").slice(-2);
       if (s.special) hasSpecial = true;
       if (selected.has(s.label)) line += box(n, (t) => style.cyan(style.bold(t)));
       else if (!s.available) line += box("··", style.red);

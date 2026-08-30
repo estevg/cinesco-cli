@@ -2791,19 +2791,28 @@ class BrowseCatalog {
 
 // src/application/seats.ts
 function resolveSeats2(labels, map) {
-  const byLabel = new Map;
+  const byKey = new Map;
+  const add = (k, s) => {
+    if (k)
+      byKey.set(k.toUpperCase(), s);
+  };
   for (const r of map.rows)
-    for (const s of r.seats)
-      byLabel.set(s.label.toUpperCase(), s);
+    for (const s of r.seats) {
+      const num = s.label.match(/\d+/)?.[0] ?? "";
+      add(s.label, s);
+      add(`${r.name}${num}`, s);
+      add(`${r.name}${num.padStart(2, "0")}`, s);
+      add(s.id, s);
+    }
   const seats = [];
   const problems = [];
   for (const raw of labels) {
-    const tok = raw.trim().toUpperCase();
+    const tok = raw.trim();
     if (!tok)
       continue;
-    const s = byLabel.get(tok);
+    const s = byKey.get(tok.toUpperCase());
     if (!s)
-      problems.push(`"${raw}" no existe en esta sala`);
+      problems.push(`"${raw.trim()}" no existe en esta sala`);
     else if (!s.available)
       problems.push(`${s.label} ya está ocupada`);
     else if (seats.some((x) => x.label === s.label))
@@ -2845,7 +2854,7 @@ function paintSeatMap2(map, selected = new Set) {
         line += " ".repeat(CELL);
         continue;
       }
-      const n = (s.id.match(/\d+/)?.[0] ?? s.id).padStart(2, "0").slice(-2);
+      const n = (s.label.match(/\d+/)?.[0] ?? s.id.match(/\d+/)?.[0] ?? "?").padStart(2, "0").slice(-2);
       if (s.special)
         hasSpecial = true;
       if (selected.has(s.label))
